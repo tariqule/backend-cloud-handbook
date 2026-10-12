@@ -1,12 +1,12 @@
 # Backend & Cloud Engineering on Google Cloud (GCP) and AWS
-### A study book for senior frontend engineers becoming senior backend and cloud engineers
+### A study book for engineers who want senior-level backend and cloud skills
 
 ---
 
 ## Who this is for
 
 **This book is for you if you are:**
-- a **senior frontend or full-stack engineer** (React, Next.js, Vue, Angular) moving into backend and cloud work;
+- a **software engineer** (frontend, full-stack, mobile or backend) moving deeper into backend and cloud work;
 - a **mid-level backend engineer** who wants the depth and judgment expected of a senior;
 - an engineer who knows **one cloud** and needs to work confidently on **both Google Cloud and AWS**.
 
@@ -33,8 +33,9 @@ differences that actually trip people up when moving between them. Azure equival
 | Section | Purpose |
 |---|---|
 | 🎯 **Outcomes** | What you should be able to do afterwards |
-| 🔁 **Coming from frontend** | The mental model you already have, and where it breaks |
+| 🔁 **Intuition check** | The common assumption, and where it breaks |
 | 📖 **Core ideas** | The concepts, at depth |
+| 🗺️ **Picture it** | A diagram of the idea |
 | 🔍 **Worked example** | A realistic scenario, step by step |
 | ✅ **Best practices** | What strong engineers do — and avoid |
 | ⚠️ **Pitfalls** | The bugs and outages these ideas prevent |
@@ -105,10 +106,10 @@ attachments, notifications, dashboards). Every chapter's examples come from it.
 - Use the libuv threadpool, worker threads and streams deliberately
 - Run Node correctly behind a load balancer: pooling, keep-alive, shutdown, request context
 
-### 🔁 Coming from frontend
-In the browser, a long task drops frames for one user. On a server, the same task stalls **every
-request on that instance**. In the browser, a leak dies with the tab; a server process runs for
-weeks.
+### 🔁 Intuition check
+A slow function feels like a local problem. On a server, a long synchronous task stalls **every
+request on that instance**, and a small memory leak accumulates for weeks because the process never
+restarts on its own.
 
 ### 📖 Core ideas
 
@@ -155,6 +156,21 @@ async calls without threading parameters everywhere — then every log line can 
   Continuing after an unknown exception risks corrupted state. Treat `unhandledRejection` the same.
 - **Memory:** watch heap usage and GC pauses; set `--max-old-space-size` to fit the container's
   memory limit, or the kernel OOM-kills you before V8 can collect.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    R["Incoming requests"] --> Q["Event loop<br/>(one JS thread)"]
+    Q -->|"network I/O<br/>HTTP, Postgres sockets"| OS["OS async I/O"]
+    Q -->|"fs, dns.lookup,<br/>crypto.pbkdf2, zlib"| TP["libuv threadpool<br/>4 threads by default"]
+    Q -->|"CPU-heavy work"| W["worker_threads<br/>or a queue + worker"]
+    OS --> Q
+    TP --> Q
+    W --> Q
+    Q --> S["Responses"]
+    B["Synchronous work<br/>JSON.parse of 20 MB, big sorts"] -.->|"blocks everything"| Q
+```
 
 ### 🔍 Worked example
 TaskFlow's p99 latency jumps from 80 ms to 2 s, but CPU is only 40% and the database is idle.
@@ -210,9 +226,10 @@ load-test it alongside a fast endpoint; watch the fast one's p99. Then fix it wi
 - Choose pagination, versioning and error models deliberately
 - Use HTTP features (conditional requests, caching headers) that most APIs ignore
 
-### 🔁 Coming from frontend
-You've consumed APIs and felt their pain: inconsistent errors, broken pagination, surprise
-breaking changes. Now you're the one who has to keep every client working for years.
+### 🔁 Intuition check
+It's easy to think of an API as a set of endpoints. Clients see it as a promise: once they depend
+on an error code, a field or a pagination style, changing it breaks them — and you have to keep
+every client working for years.
 
 ### 📖 Core ideas
 
@@ -262,6 +279,29 @@ explicitly between all-or-nothing and per-item results.
 via resolvers — use dataloaders; per-field authorization; query cost limits). gRPC fits
 service-to-service traffic with strict contracts. Events/webhooks fit integrations — sign them,
 retry them, and make receivers idempotent.
+
+### 🗺️ Picture it
+
+```mermaid
+sequenceDiagram
+    participant A as Manager A
+    participant B as Manager B
+    participant API
+    participant DB as Database
+    A->>API: GET /tasks/t_9
+    API-->>A: 200, ETag "v7"
+    B->>API: GET /tasks/t_9
+    API-->>B: 200, ETag "v7"
+    A->>API: PATCH, If-Match "v7"
+    API->>DB: UPDATE ... WHERE version = 7
+    DB-->>API: 1 row updated (now v8)
+    API-->>A: 200, ETag "v8"
+    B->>API: PATCH, If-Match "v7"
+    API->>DB: UPDATE ... WHERE version = 7
+    DB-->>API: 0 rows updated
+    API-->>B: 412 Precondition Failed
+    Note over B: Reload, see A's change, decide
+```
 
 ### 🔍 Worked example
 Two managers edit the same task's assignee at once. Without concurrency control, the second
@@ -319,9 +359,9 @@ that fire concurrent and duplicate requests.
 - Choose and implement an authorization model that scales with the product
 - Prevent broken access control systematically, not case by case
 
-### 🔁 Coming from frontend
-You've wired OAuth/OIDC login flows and stored tokens. On the backend you **verify** tokens,
-**decide** permissions, and own what happens when tokens leak or roles change.
+### 🔁 Intuition check
+Login is often treated as the hard part. The harder part is what happens after it: **verifying**
+every token, **deciding** permissions on every object, and handling leaked tokens and changed roles.
 
 ### 📖 Core ideas
 
@@ -357,6 +397,27 @@ allow-listed service**.
 **Revocation and change.** Short token lifetimes bound exposure; for immediate effect (user
 removed from a team), authorization must read current state from the database rather than trust
 roles baked into a long-lived token.
+
+### 🗺️ Picture it
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant Edge as Identity-aware proxy
+    participant IdP as Identity provider
+    participant FE as Frontend server (BFF)
+    participant API as Private API
+    U->>Edge: Request
+    Edge->>IdP: Redirect to sign in
+    IdP-->>Edge: Verified identity
+    Edge->>FE: Request + verified user
+    FE->>API: Service identity token + X-User-Email
+    API->>API: Verify signature, issuer, audience, expiry
+    API->>API: Is the caller an allow-listed service?
+    API->>API: Authorize this action on this object
+    API-->>FE: 200 or 403 / 404
+    FE-->>U: Page
+```
 
 ### 🔍 Worked example
 TaskFlow is multi-tenant. A bug in a new "search tasks" endpoint forgets `WHERE org_id = $1`.
@@ -416,9 +477,9 @@ deliberately omits the tenant filter and proves no cross-tenant rows are returne
 - Decide between a modular monolith and services with real criteria
 - Enforce boundaries automatically
 
-### 🔁 Coming from frontend
-It's the same instinct as separating presentational components from data hooks — but the cost of
-getting it wrong is higher, because backend code lives longer and carries data invariants.
+### 🔁 Intuition check
+Most codebases start clean and tangle as features pile up. Backend code lives for years and carries
+data invariants, so tangled business rules become expensive bugs, not just messy code.
 
 ### 📖 Core ideas
 
@@ -450,6 +511,18 @@ tests): "services may not import the ORM", "module A may not import module B's i
 
 **Single source of truth for rules.** If two endpoints compute the same metric, they call the same
 function or SQL fragment. Duplicated rules drift and two screens disagree.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    T["Transport<br/>HTTP / queue handlers"] --> S["Application services<br/>use cases, authorization,<br/>transactions"]
+    S --> DM["Domain<br/>pure rules, no I/O"]
+    S --> P["Ports<br/>repository interfaces"]
+    A["Adapters<br/>Postgres, HTTP clients,<br/>queues"] -.->|"implements"| P
+    CR["Composition root<br/>wires adapters into services"] -.-> S
+    CR -.-> A
+```
 
 ### 🔍 Worked example
 TaskFlow's admin roster and a user's own dashboard both show "completion rate". Originally each
@@ -504,9 +577,10 @@ refactor until it passes.
 - Understand connections and pooling at the database level
 - Read the planner's mind well enough to predict query behaviour
 
-### 🔁 Coming from frontend
-You've used an ORM or Firebase. Postgres rewards understanding its engine: most production database
-incidents are about locks, connections, bloat or a bad plan — not syntax.
+### 🔁 Intuition check
+Many engineers treat the database as a black box behind an ORM. Postgres rewards understanding its
+engine: most production database incidents are about locks, connections, bloat or a bad plan — not
+syntax.
 
 ### 📖 Core ideas
 
@@ -558,6 +632,19 @@ partitioning, `SKIP LOCKED`, row-level security, `LISTEN/NOTIFY` (lightweight si
 **Watch out:** the engines are the same Postgres, so everything in this chapter applies to both.
 What differs is the edges — how you connect privately, how IAM login works, and which pooling
 option you get.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart TB
+    subgraph Row["Row versions for task t_9"]
+        V1["v1: title = 'Draft'<br/>dead (xmax set)"] --> V2["v2: title = 'Report'<br/>live"]
+    end
+    T1["Old transaction<br/>snapshot sees v1"] -.-> V1
+    T2["New transaction<br/>sees v2"] -.-> V2
+    VAC["VACUUM"] -->|"removes v1 only after<br/>no snapshot needs it"| V1
+    LONG["Idle-in-transaction session"] -.->|"pins old snapshots,<br/>blocks cleanup"| VAC
+```
 
 ### 🔍 Worked example
 TaskFlow's database CPU climbs every afternoon and queries slow down. `pg_stat_activity` shows a
@@ -611,8 +698,9 @@ Open a transaction and leave it idle while running updates elsewhere; watch dead
 - Read `EXPLAIN (ANALYZE, BUFFERS)` and fix common bad plans
 - Eliminate N+1 and other systemic performance bugs
 
-### 🔁 Coming from frontend
-Like profiling renders before memoizing: measure, find the hot path, fix the cause.
+### 🔁 Intuition check
+The instinct to add a cache or a bigger machine comes first. The fix is usually cheaper: measure,
+find the hot query, fix its cause.
 
 ### 📖 Core ideas
 
@@ -644,6 +732,23 @@ Like profiling renders before memoizing: measure, find the hot path, fix the cau
 3. **Correlated subqueries per row** on large sets — rewrite as joins or lateral joins with indexes.
 4. **Functions on indexed columns** in predicates.
 5. **Counting** large filtered sets on every request — cache, approximate, or drop the total.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart TD
+    A["Slow endpoint"] --> B["Find the query:<br/>pg_stat_statements, traces"]
+    B --> C["EXPLAIN (ANALYZE, BUFFERS)"]
+    C --> D{"What dominates?"}
+    D -->|"Seq Scan on a big table"| E["Add or fix an index<br/>equality first, then range/sort"]
+    D -->|"Estimates far from actuals"| F["ANALYZE, statistics target,<br/>extended statistics"]
+    D -->|"Many identical small queries"| G["Fix N+1: join or batch"]
+    D -->|"Sort spilling to disk"| H["Index matching ORDER BY,<br/>or more work_mem"]
+    E --> I["Re-measure"]
+    F --> I
+    G --> I
+    H --> I
+```
 
 ### 🔍 Worked example
 "Open tasks for my team, newest first" takes 900 ms on 20M rows. The plan shows a sequential scan
@@ -698,9 +803,9 @@ timings and buffer reads.
 - Use locks deliberately and avoid lock-related outages
 - Build correct concurrent workflows, including job queues on Postgres
 
-### 🔁 Coming from frontend
-Race conditions in UI state are annoying; in a database they're corrupted money, double bookings
-and duplicate emails.
+### 🔁 Intuition check
+"It's in a transaction, so it's safe" is the most common assumption here — and often wrong. In a
+database, race conditions mean corrupted balances, double bookings and duplicate emails.
 
 ### 📖 Core ideas
 
@@ -739,6 +844,25 @@ WITH next AS (
 )
 UPDATE jobs SET status = 'running', locked_at = now()
 FROM next WHERE jobs.id = next.id RETURNING jobs.*;
+```
+
+### 🗺️ Picture it
+
+```mermaid
+sequenceDiagram
+    participant A as Owner Alice (txn A)
+    participant DB as Database
+    participant B as Owner Bob (txn B)
+    A->>DB: SELECT count of owners
+    DB-->>A: 2
+    B->>DB: SELECT count of owners
+    DB-->>B: 2
+    A->>DB: UPDATE Alice to member
+    B->>DB: UPDATE Bob to member
+    A->>DB: COMMIT
+    B->>DB: COMMIT
+    Note over DB: Zero owners remain (write skew)
+    Note over A,B: Fix: SERIALIZABLE + retry, or lock the org row first
 ```
 
 ### 🔍 Worked example
@@ -794,8 +918,8 @@ and a retry loop, once with a row lock. Build a `SKIP LOCKED` worker pool and ru
 - Ship schema changes with zero downtime
 - Plan backfills and large data changes safely
 
-### 🔁 Coming from frontend
-Changing a TypeScript type is a refactor. Changing a production schema is a migration of live data
+### 🔁 Intuition check
+Changing a type in code is a refactor. Changing a production schema is a migration of live data
 that old and new code read at the same time.
 
 ### 📖 Core ideas
@@ -830,6 +954,22 @@ Every step must be compatible with both. **Expand → migrate → contract:**
 
 **ORMs.** Use them for CRUD and schema/migration tooling; drop to parameterized SQL for reporting,
 bulk operations and anything performance-sensitive. Log generated SQL in development.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    subgraph R1["Release 1: expand"]
+        E1["Add nullable column"] --> E2["Code writes old + new,<br/>reads old"]
+    end
+    subgraph R2["Release 2: migrate"]
+        M1["Backfill in batches"] --> M2["Verify"] --> M3["Code reads new,<br/>writes both"]
+    end
+    subgraph R3["Release 3+: contract"]
+        C1["Code writes new only"] --> C2["Drop old column"]
+    end
+    R1 --> R2 --> R3
+```
 
 ### 🔍 Worked example
 TaskFlow needs to split `tasks.assignee` (a text email) into `assignee_id` (a foreign key).
@@ -884,9 +1024,9 @@ confirm zero errors.
 - Design caches with explicit consistency and invalidation strategies
 - Separate operational and analytical workloads
 
-### 🔁 Coming from frontend
-You know React Query/SWR: stale-while-revalidate, cache keys, invalidation. Server caches add
-multiple writers, multiple instances and much higher stakes for stale data.
+### 🔁 Intuition check
+Caching looks like a free speed-up. On a server it adds multiple writers, multiple instances and
+real consequences for stale data — so freshness and invalidation have to be designed, not hoped for.
 
 ### 📖 Core ideas
 
@@ -932,6 +1072,26 @@ replica, and accept freshness lag.
 | Change data capture | Datastream | AWS DMS |
 | Object storage | Cloud Storage | S3 |
 | CDN | Cloud CDN | CloudFront |
+
+### 🗺️ Picture it
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Cache as Redis
+    participant DB as Postgres
+    App->>Cache: GET leaderboard:v2:org:7
+    alt Cache hit
+        Cache-->>App: value
+    else Cache miss
+        Cache-->>App: nil
+        App->>Cache: SET lock (NX, 5 s)
+        App->>DB: expensive query
+        DB-->>App: rows
+        App->>Cache: SET value, TTL 60 s + jitter
+    end
+    Note over App,DB: On writes: commit first, then delete or version the key
+```
 
 ### 🔍 Worked example
 TaskFlow's org leaderboard scans millions of rows and takes 3 s. Product accepts a 60-second
@@ -986,8 +1146,9 @@ cold start and observe database queries.
 - Publish events reliably and consume them idempotently
 - Orchestrate multi-step workflows without distributed transactions
 
-### 🔁 Coming from frontend
-Like optimistic UI and background sync — but here, a duplicated message can charge a card twice.
+### 🔁 Intuition check
+Async processing feels like "do it later". In reality messages are delayed, duplicated and
+reordered — and a duplicated message can charge a card twice.
 
 ### 📖 Core ideas
 
@@ -1041,6 +1202,20 @@ document them, and keep consumers tolerant of unknown fields.
 **Watch out:** an AWS "queue" (SQS) and "topic" (SNS) are separate services; on Google Cloud, Pub/Sub
 covers both roles through subscriptions. Whatever the guarantees, keep consumers idempotent.
 
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    subgraph TX["One database transaction"]
+        U["UPDATE tasks"] --- O["INSERT INTO outbox"]
+    end
+    TX --> R["Relay<br/>polling with SKIP LOCKED, or CDC"]
+    R --> BR["Broker<br/>Pub/Sub or SNS/SQS"]
+    BR --> C1["Email consumer<br/>dedupe by event_id"]
+    BR --> C2["In-app notifications<br/>dedupe by event_id"]
+    C1 -->|"keeps failing"| DLQ["Dead-letter queue<br/>+ alert"]
+```
+
 ### 🔍 Worked example
 Assigning a task must notify the assignee by email and in-app. The use case updates the task and
 inserts `outbox(event_id, type='task.assigned', payload)` in one transaction. A relay publishes to
@@ -1092,9 +1267,9 @@ consumer at random points during a load test; verify no event is lost or applied
 - Apply timeouts, retries, circuit breakers and load shedding correctly
 - Reason about consistency trade-offs explicitly
 
-### 🔁 Coming from frontend
-You handle `fetch` failures with error states. In distributed systems the dependency can be slow,
-half-working or lying — and your retries can make it worse.
+### 🔁 Intuition check
+A failed call looks like a simple error to handle. In distributed systems a dependency can be slow,
+half-working or ambiguous about what it did — and naive retries can make it worse.
 
 ### 📖 Core ideas
 
@@ -1121,6 +1296,21 @@ tells you nothing about whether the other side acted.
 **Little's Law** — `concurrency = throughput × latency`. If latency doubles at constant throughput,
 concurrency (connections, threads, memory) doubles too. That's how a slow dependency exhausts pools
 and cascades into an outage.
+
+### 🗺️ Picture it
+
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open: failure rate above threshold
+    Open --> HalfOpen: cool-down elapsed
+    HalfOpen --> Closed: trial calls succeed
+    HalfOpen --> Open: trial calls fail
+    note right of Open
+        Fail fast or serve a fallback.
+        No waiting on timeouts.
+    end note
+```
 
 ### 🔍 Worked example
 TaskFlow calls a calendar API with a 30-second default timeout and three immediate retries. The
@@ -1177,9 +1367,9 @@ errors; measure the blast radius before and after adding timeouts, a breaker and
 - Use real infrastructure in tests efficiently
 - Test contracts between services
 
-### 🔁 Coming from frontend
-You know unit and component testing. Backend testing's highest value is in integration tests
-against real databases — mocks hide most of the bugs that matter.
+### 🔁 Intuition check
+Unit tests with mocks feel thorough. On the backend, the highest-value tests run against real
+databases — mocks hide most of the bugs that matter.
 
 ### 📖 Core ideas
 - **Unit tests** for pure domain logic and edge-heavy functions.
@@ -1198,6 +1388,17 @@ against real databases — mocks hide most of the bugs that matter.
 **Keeping suites fast and reliable:** isolate data per test (unique ids or rollback-per-test),
 truncate between files, freeze time, seed randomness, parallelize safely. Flaky tests are bugs —
 reproduce, fix or quarantine with an owner.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart TB
+    E2E["End-to-end<br/>a few critical journeys"]
+    CT["Contract tests<br/>per service boundary"]
+    INT["Integration and route tests<br/>real Postgres: auth matrix, error codes,<br/>concurrency, migrations"]
+    UNIT["Unit tests<br/>pure domain logic, many and fast"]
+    E2E --- CT --- INT --- UNIT
+```
 
 ### 🔍 Worked example
 TaskFlow's "assign task" passed all unit tests with mocked repositories. In production two
@@ -1246,8 +1447,9 @@ Add a concurrency test and a full authorization matrix test to one critical endp
 - Define SLOs and alert on error-budget burn
 - Debug production issues systematically
 
-### 🔁 Coming from frontend
-Like RUM and Sentry, but for the whole request path — and you're the one paged at 3 a.m.
+### 🔁 Intuition check
+In development you have a debugger. In production you only have what you instrumented — and you're
+the one paged at 3 a.m.
 
 ### 📖 Core ideas
 
@@ -1288,6 +1490,20 @@ re-instrumenting your code.
 2. Where? RED metrics by route, region, version.
 3. Why? Traces of slow/failed requests → logs for those trace ids.
 4. Mitigate first (rollback, shed load, disable a feature flag), then root-cause.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    APP["Service<br/>OpenTelemetry SDK"] -->|"logs with trace_id"| L["Logs"]
+    APP -->|"RED metrics, histograms"| M["Metrics"]
+    APP -->|"spans via traceparent"| T["Traces"]
+    M --> SLO["SLO + burn-rate alerts"]
+    SLO -->|"page"| ONCALL["On-call"]
+    ONCALL -->|"find route and version"| M
+    ONCALL -->|"open a slow trace"| T
+    ONCALL -->|"read logs for that trace_id"| L
+```
 
 ### 🔍 Worked example
 Alert: 1-hour burn rate 20× on TaskFlow's API. Dashboard: errors concentrated on `POST /tasks`,
@@ -1337,9 +1553,10 @@ alert. Break a deploy deliberately and follow the alert to the root cause.
 - Defend against the high-impact backend vulnerabilities
 - Secure the software supply chain and secrets
 
-### 🔁 Coming from frontend
-You know XSS and CSP. Backend security is about access control, injection, secrets, server-side
-fetching, and the blast radius when something is compromised.
+### 🔁 Intuition check
+Security is often reduced to "use HTTPS and validate input". Backend security is about access
+control, injection, secrets, server-side fetching, and limiting the blast radius when something is
+compromised.
 
 ### 📖 Core ideas
 
@@ -1369,6 +1586,18 @@ and provenance (SLSA, Sigstore); least-privilege CI tokens; pin third-party CI a
 
 **Audit and detection.** Append-only audit logs of security-relevant actions (who changed what,
 when, from where), and alerts on anomalies.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    ATK["Attacker"] -->|"import from URL:<br/>http://169.254.169.254/..."| APP["Your server"]
+    APP -->|"without protection"| META["Cloud metadata service<br/>workload credentials"]
+    APP -->|"without protection"| INT["Internal services<br/>and databases"]
+    APP -->|"with protection"| CHK{"Resolve DNS, block private<br/>and link-local IPs, no redirects"}
+    CHK -->|"public address"| EXT["Allowed external site"]
+    CHK -->|"private address"| BLK["Rejected"]
+```
 
 ### 🔍 Worked example
 TaskFlow's "import from URL" fetched any URL. A tester submits a URL resolving to the cloud
@@ -1423,9 +1652,9 @@ Threat-model one feature with STRIDE, then fix the top three risks and add tests
 - Eliminate long-lived credentials with workload identity
 - Structure accounts/projects and guardrails for an organization
 
-### 🔁 Coming from frontend
-Like scoping API keys per environment — except every resource, every service and every pipeline
-has an identity, and a single over-broad grant can expose everything.
+### 🔁 Intuition check
+Cloud permissions feel like admin settings. In reality every resource, service and pipeline has an
+identity, and a single over-broad grant can expose everything.
 
 ### 📖 Core ideas
 
@@ -1483,6 +1712,20 @@ identities (CI systems, other clouds, workforce identity pools).
 - "Service account" on GCP ≈ "IAM role assumed by a workload" on AWS. Long-lived keys exist on both
   (service account keys, IAM user access keys) — avoid both.
 
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    GH["GitHub Actions job<br/>main branch only"] -->|"OIDC token"| STS["Cloud token exchange<br/>GCP WIF / AWS STS"]
+    STS --> DEP["api-deployer"]
+    DEP -->|"deploys as"| API["API service<br/>runs as api-runtime"]
+    WEB["Web service<br/>runs as web-runtime"] -->|"invoke permission only"| API
+    API -->|"IAM database auth"| DB[("Postgres")]
+    API -->|"read 2 secrets"| SEC["Secret manager"]
+    API -->|"publish"| TOP["Topic"]
+    ORG["Org guardrails:<br/>no public DB IPs, no public buckets"] -.-> API
+```
+
 ### 🔍 Worked example
 TaskFlow's IAM design (names written cloud-neutrally — on GCP each is a service account, on AWS an IAM role):
 - `taskflow-api-build`: may push images to one registry and deploy one service; may act as the runtime identity.
@@ -1537,9 +1780,9 @@ a service with separate build and runtime identities.
 - Build secure, efficient container images
 - Design private networking for services and data
 
-### 🔁 Coming from frontend
-Vercel and Netlify abstracted all of this. Here you choose and configure the platform, the network
-paths and the trade-offs between cost, latency and control.
+### 🔁 Intuition check
+Managed hosting platforms hide these choices. Running your own services means choosing the platform,
+the network paths and the trade-offs between cost, latency and control.
 
 ### 📖 Core ideas
 
@@ -1614,6 +1857,33 @@ PodDisruptionBudgets, namespaces and network policies.
 - On AWS, high availability means spreading subnets across **Availability Zones** yourself; many
   GCP serverless services are regional by default.
 
+### 🗺️ Picture it
+
+**On Google Cloud**
+
+```mermaid
+flowchart LR
+    U["Users"] --> LB["Global external Application LB<br/>Cloud Armor + IAP"]
+    LB --> WEB["Cloud Run: web"]
+    WEB -->|"ID token, run.invoker"| API["Cloud Run: API<br/>internal ingress"]
+    API -->|"Direct VPC egress"| SQL[("Cloud SQL<br/>private IP")]
+    API --> NAT["Cloud NAT<br/>fixed IPs"] --> EXT["Partner APIs"]
+    ENG["Engineers"] -->|"IAP TCP forwarding"| BAS["Bastion VM"] --> SQL
+```
+
+**On AWS**
+
+```mermaid
+flowchart LR
+    U["Users"] --> CF["CloudFront + AWS WAF"]
+    CF --> ALB["ALB with OIDC auth"]
+    ALB --> WEB["ECS Fargate: web"]
+    WEB -->|"IAM-authorized call"| API["ECS Fargate: API<br/>internal ALB"]
+    API -->|"private subnets, security groups"| RDS[("RDS PostgreSQL<br/>private")]
+    API --> NAT["NAT Gateway<br/>Elastic IPs"] --> EXT["Partner APIs"]
+    ENG["Engineers"] -->|"SSM Session Manager"| RDS
+```
+
 ### 🔍 Worked example
 TaskFlow's architecture: users hit a global load balancer with WAF and an identity-aware proxy; the
 web app (serverless container) calls the private API service using its own identity token; the API
@@ -1676,9 +1946,9 @@ Deploy a service privately with a database on private IP, controlled egress, a c
 - Build pipelines that deploy safely, progressively and keylessly
 - Coordinate application, schema and infrastructure changes
 
-### 🔁 Coming from frontend
-Like having your build and deploy config in the repo — extended to every database, network and
-permission.
+### 🔁 Intuition check
+Clicking through a console feels faster. Code-defined infrastructure and automated delivery are what
+make changes reviewable, repeatable and reversible.
 
 ### 📖 Core ideas
 
@@ -1714,6 +1984,22 @@ main: sign + push by digest → migrate (expand) → deploy canary → smoke + S
 | Progressive delivery | Cloud Run traffic splitting; Cloud Deploy canary | CodeDeploy canary/linear for Lambda and ECS; Lambda weighted aliases |
 | Policy as code | Organization Policy, custom constraints; OPA/Conftest on plans | SCPs, AWS Config rules, CloudFormation Guard; OPA/Conftest on plans |
 | Drift detection | Scheduled `terraform plan` | Scheduled `terraform plan`; CloudFormation drift detection |
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    subgraph PR["Pull request"]
+        L["Lint, typecheck,<br/>unit tests"] --> BI["Build image"] --> IT["Integration + contract tests"] --> SC["Security scans"] --> PV["Preview environment"]
+    end
+    subgraph MAIN["Merge to main"]
+        PU["Sign + push by digest"] --> MG["Expand migration"] --> CN["Canary 5%"] --> CK{"SLOs healthy?"}
+        CK -->|"yes"| FULL["100% rollout"]
+        CK -->|"no"| RB["Automatic rollback"]
+    end
+    PR --> MAIN
+    TF["Terraform PR: plan in PR,<br/>apply on merge"] -.-> MAIN
+```
 
 ### 🔍 Worked example
 Shipping TaskFlow's assignee change (Chapter 8) end to end: a Terraform PR adds the new topic and
@@ -1784,6 +2070,18 @@ error rate, and a Terraform repo with policy checks.
 migration plan, observability, cost, open questions. Short beats exhaustive. Decisions recorded as
 **ADRs** so future readers know *why*.
 
+### 🗺️ Picture it
+
+```mermaid
+flowchart LR
+    API["Task service"] -->|"same transaction"| OB["outbox"]
+    OB --> RL["Relay"] --> TOPIC["Topic"]
+    TOPIC --> FC["Feed consumer<br/>idempotent by event_id"]
+    FC --> FE[("feed_events<br/>partitioned by month")]
+    USER["GET /teams/:id/feed?after=cursor"] --> RR["Read replica"] --> FE
+    HOT["Hot teams"] -.->|"short cache"| USER
+```
+
 ### 🔍 Worked example — TaskFlow activity feed
 - *Requirements:* per-team feed of events, newest first, < 200 ms p95, eventual consistency OK (seconds), 2-year retention.
 - *Estimates:* 5M events/day ≈ 60/s average, 600/s peak; ~2 KB/event → ~3.6 TB over two years.
@@ -1851,7 +2149,21 @@ storage service. Get it reviewed.
 - Estimates as ranges with named unknowns.
 - Incidents: stabilize, communicate on a cadence, then blameless postmortems with owned actions.
 - Mentoring through pairing, design reviews and explaining the *why*.
-- Bridge frontend and backend: shared contracts, mocks, both sides changed together.
+- Bridge teams that share an API: shared contracts, mocks, both sides changed together.
+
+### 🗺️ Picture it
+
+```mermaid
+flowchart TD
+    C["Change to review"] --> Q1{"Correct, including<br/>edge cases?"}
+    Q1 --> Q2{"Secure: authorization<br/>on every object?"}
+    Q2 --> Q3{"Data integrity:<br/>transactions, concurrency,<br/>safe migration?"}
+    Q3 --> Q4{"Contract compatible<br/>and documented?"}
+    Q4 --> Q5{"Performance:<br/>N+1, indexes, bounds?"}
+    Q5 --> Q6{"Tests cover failures?"}
+    Q6 --> Q7{"Readable?"}
+    Q7 --> V["Verify findings, then comment:<br/>what, why it matters, suggestion"]
+```
 
 ### 🔍 Worked example
 An automated review flags five issues on a teammate's PR. Before commenting, you reproduce each

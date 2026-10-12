@@ -21,12 +21,14 @@ There's no ordering that's safe.
 
 ## The pattern
 
-```
-┌─────────────── one transaction ───────────────┐
-│ UPDATE tasks SET assignee_id = …               │
-│ INSERT INTO outbox (event_id, type, payload)   │
-└────────────────────────────────────────────────┘
-        relay (polling or CDC) ──► broker ──► consumers (idempotent)
+```mermaid
+flowchart LR
+    subgraph TX["One transaction"]
+        U["UPDATE tasks SET assignee_id = ..."] --- O["INSERT INTO outbox"]
+    end
+    TX --> R["Relay<br/>polling or CDC"]
+    R --> B["Broker"]
+    B --> C["Consumers<br/>idempotent by event_id"]
 ```
 
 ```sql

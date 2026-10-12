@@ -32,6 +32,18 @@ name, then first name.
 
 **Rule of thumb:** equality columns first, then the range or sort column.
 
+### Picture it: a composite index on (team_id, status, created_at)
+
+```mermaid
+flowchart TD
+    ROOT["B-tree root"] --> T1["team_id = 1"]
+    ROOT --> T2["team_id = 2"]
+    T1 --> S1["status = done"]
+    T1 --> S2["status = open"]
+    S2 --> D1["created_at, newest first<br/>→ row pointers"]
+    Q["WHERE team_id = 1 AND status = 'open'<br/>ORDER BY created_at DESC LIMIT 50"] -.->|"one short range read"| D1
+```
+
 ## Partial, covering and expression indexes
 
 ```sql

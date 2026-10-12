@@ -37,6 +37,20 @@ Using a **transaction-local** setting (`set_config(..., true)` / `SET LOCAL`) ma
 [connection pooling](connection-pooling.md): a session-level setting could leak to the next client
 that gets the same pooled connection.
 
+## Picture it
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant PG as Postgres
+    App->>PG: BEGIN
+    App->>PG: set_config('app.org_id', org_7, true)
+    App->>PG: SELECT * FROM tasks WHERE status = 'open'
+    Note over PG: Policy adds: AND org_id = org_7
+    PG-->>App: Only org 7's rows
+    App->>PG: COMMIT (setting is discarded)
+```
+
 ## Important details
 
 - RLS doesn't apply to superusers or roles with `BYPASSRLS`. Run the app as a normal role.

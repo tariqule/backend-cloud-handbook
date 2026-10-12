@@ -17,10 +17,13 @@ connection, a request slot and memory forever. Set timeouts from the dependency'
 
 Stop calling a dependency that keeps failing, and fail fast instead.
 
-```
-CLOSED ── failure rate above threshold ──► OPEN ── after a cool-down ──► HALF-OPEN
-  ▲                                         │                              │
-  └───────── trial requests succeed ────────┴──── trial requests fail ─────┘ (back to OPEN)
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open: failure rate above threshold
+    Open --> HalfOpen: cool-down elapsed
+    HalfOpen --> Closed: trial calls succeed
+    HalfOpen --> Open: trial calls fail
 ```
 
 - **Closed:** calls go through; failures are counted.

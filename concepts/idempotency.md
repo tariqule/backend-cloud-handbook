@@ -66,6 +66,22 @@ await db.transaction(async (tx) => {
 The primary key also handles two *concurrent* requests with the same key: one insert wins, the
 other gets a unique violation and can re-read the stored response.
 
+## Picture it
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API
+    participant DB as Database
+    C->>API: POST /payments, Idempotency-Key k1
+    API->>DB: BEGIN, charge, save k1 + response, COMMIT
+    API--xC: response lost (timeout)
+    C->>API: Retry: POST /payments, Idempotency-Key k1
+    API->>DB: Look up k1
+    DB-->>API: Stored response
+    API-->>C: Same 201 response, no second charge
+```
+
 ## Idempotent consumers
 
 For queues, use the message or event id as the key:

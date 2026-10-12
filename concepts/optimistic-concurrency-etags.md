@@ -55,6 +55,22 @@ router.patch('/tasks/:id', async (req, res) => {
 // In the repository: zero rows updated → throw a PreconditionFailed error → 412
 ```
 
+## Picture it
+
+```mermaid
+sequenceDiagram
+    participant A as Alice
+    participant B as Bob
+    participant API
+    A->>API: GET task (ETag v7)
+    B->>API: GET task (ETag v7)
+    A->>API: PATCH, If-Match v7
+    API-->>A: 200 (now v8)
+    B->>API: PATCH, If-Match v7
+    API-->>B: 412 Precondition Failed
+    B->>API: GET task (ETag v8), reapply change
+```
+
 ## Optimistic vs pessimistic
 
 | | Optimistic (versions) | Pessimistic (`SELECT … FOR UPDATE`) |

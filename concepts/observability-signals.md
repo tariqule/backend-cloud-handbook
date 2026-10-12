@@ -47,6 +47,17 @@ publish) — sharing a trace id. Context crosses process boundaries in the W3C `
 Instrument with **OpenTelemetry**: it auto-instruments common libraries (HTTP, Express, `pg`) and
 exports to most backends, so you can change vendors — or clouds — without re-instrumenting.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    APP["Service + OpenTelemetry"] -->|"structured logs + trace_id"| L["Logs"]
+    APP -->|"RED / USE metrics"| M["Metrics"]
+    APP -->|"spans"| T["Traces"]
+    L <-->|"trace_id"| T
+    M --> A["SLO burn-rate alerts"]
+```
+
 ## On GCP and AWS
 
 | | Google Cloud | AWS |

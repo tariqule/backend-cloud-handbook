@@ -16,6 +16,14 @@ before promise microtasks.
 
 For a server, the one thing that matters: **while a callback runs, nothing else does.**
 
+## Picture it
+
+```mermaid
+flowchart LR
+    T["timers"] --> P["pending callbacks"] --> PO["poll<br/>I/O callbacks"] --> CH["check<br/>setImmediate"] --> CL["close callbacks"] --> T
+    MQ["microtasks: process.nextTick, then promises<br/>drained between callbacks"] -.-> PO
+```
+
 ## Event loop lag — the health metric
 
 Lag = how late the loop is in running scheduled work. Healthy services show a few milliseconds.

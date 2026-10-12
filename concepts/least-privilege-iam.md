@@ -48,6 +48,19 @@ permissions that identity had. Least privilege limits the **blast radius**.
 | `api-deployer` (CI) | Push images to one registry, deploy one service, launch it as `api-runtime` |
 | Engineers (group) | Read logs and metrics; production write access only via time-bound elevation |
 
+## Picture it
+
+```mermaid
+flowchart LR
+    CI["CI via OIDC"] --> DEP["api-deployer"]
+    DEP -->|"deploy + act as"| API["api-runtime"]
+    WEB["web-runtime"] -->|"invoke only"| API
+    API -->|"connect"| DB[("Database")]
+    API -->|"read"| SEC["2 secrets"]
+    API -->|"publish"| TOP["1 topic"]
+    ENG["Engineers group"] -->|"read logs; time-bound<br/>prod elevation"| API
+```
+
 ## Pitfalls
 
 - Granting a broad role "temporarily" and never removing it.

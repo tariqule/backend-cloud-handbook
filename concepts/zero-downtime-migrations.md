@@ -31,6 +31,16 @@ same database. Migrations usually run before the new code starts. So:
 - Deploy code that stops writing the old column.
 - Then a migration drops it.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    E["Expand<br/>add new column<br/>write both, read old"] --> M["Migrate<br/>backfill in batches<br/>read new, write both"]
+    M --> C["Contract<br/>write new only<br/>drop old column"]
+    OLD["Old code running"] -.->|"still works"| E
+    OLD -.->|"still works"| M
+```
+
 ## Example: rename `tasks.title` to `tasks.name`
 
 ```sql

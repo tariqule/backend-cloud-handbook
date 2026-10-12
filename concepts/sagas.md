@@ -25,6 +25,25 @@ complete, or completed steps are compensated.
 
 If step 3 fails, run compensations for 2 and 1, in reverse order.
 
+## Picture it: orchestration with compensation
+
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator
+    participant S as Subscriptions
+    participant P as Payments
+    participant L as Limits
+    O->>S: Create pending subscription
+    S-->>O: OK
+    O->>P: Charge card
+    P-->>O: OK
+    O->>L: Raise org limits
+    L-->>O: FAILED
+    Note over O: Compensate in reverse order
+    O->>P: Refund charge
+    O->>S: Cancel subscription
+```
+
 ## Two styles
 
 **Choreography** — each service reacts to events from the previous one.

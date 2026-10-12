@@ -34,6 +34,16 @@ await pipeline(query, toCsvTransform(), createGzip(), res)
 
 Memory stays flat no matter how many rows there are.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    DB[("Postgres cursor")] --> CSV["CSV transform"] --> GZ["gzip"] --> RES["HTTP response<br/>slow client"]
+    RES -.->|"buffer full: pause"| GZ
+    GZ -.->|"pause"| CSV
+    CSV -.->|"pause"| DB
+```
+
 ## Backpressure
 
 Each writable stream has a buffer limit (`highWaterMark`). When it's full, `write()` returns

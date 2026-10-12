@@ -50,6 +50,21 @@ export async function verify(token: string) {
 }
 ```
 
+## Picture it
+
+```mermaid
+flowchart TD
+    T["Incoming bearer token"] --> K{"kid in cached JWKS?"}
+    K -->|"no"| F["Refetch JWKS"] --> K2{"Found now?"}
+    K2 -->|"no"| X["401"]
+    K -->|"yes"| SIG{"Signature and alg valid?"}
+    K2 -->|"yes"| SIG
+    SIG -->|"no"| X
+    SIG -->|"yes"| CL{"iss, aud, exp, nbf OK?"}
+    CL -->|"no"| X
+    CL -->|"yes"| OK["Authenticated: now authorize"]
+```
+
 ## Key rotation (JWKS)
 
 Issuers publish public keys at a **JWKS** endpoint. Tokens name their key with `kid`. Cache the

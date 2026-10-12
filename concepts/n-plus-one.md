@@ -19,6 +19,21 @@ for (const team of teams) {
 50 teams → 51 round trips. Each is fast on its own, so it passes code review and local testing
 (where N is 3). In production N is 500 and latency is dominated by round trips.
 
+## Picture it
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant DB
+    Note over App,DB: N+1: 1 + 50 round trips
+    App->>DB: SELECT teams
+    loop For each of 50 teams
+        App->>DB: SELECT count(*) FROM tasks WHERE team_id = ?
+    end
+    Note over App,DB: Batched: 1 round trip
+    App->>DB: SELECT team_id, count(*) ... WHERE team_id = ANY(...) GROUP BY team_id
+```
+
 ## Fixes
 
 **Aggregate in one query**

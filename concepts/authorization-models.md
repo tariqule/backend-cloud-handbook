@@ -19,8 +19,11 @@ Real products usually combine them: **RBAC inside a tenant** plus **per-object c
 
 ## ReBAC in one picture
 
-```
-user:alice ──member──► team:design ──viewer──► project:website ──parent──► task:t_9
+```mermaid
+flowchart LR
+    U["user:alice"] -->|"member"| T["team:design"]
+    T -->|"viewer"| P["project:website"]
+    P -->|"parent of"| K["task:t_9"]
 ```
 "Can Alice view task t_9?" → follow the edges. Systems based on Google's **Zanzibar** paper
 (OpenFGA, SpiceDB, Permify) store these relationships and answer checks fast and consistently.

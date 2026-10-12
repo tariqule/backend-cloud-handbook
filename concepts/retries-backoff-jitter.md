@@ -50,6 +50,17 @@ into **4 × 4 × 4 = 64** attempts. Retry at **one** layer — usually the one c
 that knows whether the operation is safe — and propagate deadlines so lower layers stop when the
 caller has given up.
 
+## Picture it: retry amplification
+
+```mermaid
+flowchart LR
+    BR["Browser<br/>4 tries"] -->|"x4"| BFF["BFF<br/>4 tries each"]
+    BFF -->|"x16"| API["API<br/>4 tries each"]
+    API -->|"up to 64 calls"| DB[("Failing database")]
+```
+
+Retry at one layer, with backoff, jitter and a budget.
+
 ## Pitfalls
 
 - Immediate, unlimited retries.

@@ -38,6 +38,18 @@ LIMIT 51;
 With an index on `(team_id, created_at DESC, id DESC)`, every page is a short index range scan —
 page 1 and page 10,000 cost the same.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    subgraph Offset["OFFSET 10000"]
+        O1["Read 10,050 rows"] --> O2["Throw away 10,000"] --> O3["Return 50"]
+    end
+    subgraph Keyset["WHERE (created_at, id) < cursor"]
+        K1["Seek in index to cursor"] --> K2["Read 51 rows"] --> K3["Return 50 + next cursor"]
+    end
+```
+
 ## The tie-breaker is not optional
 
 Timestamps collide. Ordering by `created_at` alone means two rows with the same timestamp at a page

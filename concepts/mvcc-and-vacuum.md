@@ -18,6 +18,17 @@
 Result: **readers never block writers, and writers never block readers.** That's why Postgres
 handles mixed read/write traffic well.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    U["UPDATE tasks SET title = 'Report'"] --> OLD["Old version<br/>marked dead"]
+    U --> NEW["New version<br/>live"]
+    R1["Reader with old snapshot"] -.-> OLD
+    R2["New reader"] -.-> NEW
+    VAC["VACUUM"] -->|"reclaims once no<br/>snapshot needs it"| OLD
+```
+
 ## The cost: dead tuples
 
 Old versions stay on disk until nothing can see them any more. Those are **dead tuples**. Left

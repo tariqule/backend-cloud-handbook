@@ -31,6 +31,15 @@ you need about 100 concurrent worker slots to keep up.
 threads and memory are exhausted, and now *every* endpoint is slow — not just the one that calls the
 slow dependency. That's why [timeouts and bulkheads](circuit-breakers-bulkheads-load-shedding.md) matter.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    N["Normal: 200 req/s x 0.05 s<br/>= 10 calls in flight"] --> S["Dependency slows to 10 s"]
+    S --> X["200 req/s x 10 s<br/>= 2,000 calls in flight"]
+    X --> E["Pools, threads and memory exhausted<br/>every endpoint slows"]
+```
+
 ## Rules of thumb it gives you
 
 - If latency doubles at the same traffic, you need twice the concurrency.

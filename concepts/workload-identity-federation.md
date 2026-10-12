@@ -29,11 +29,16 @@ CI systems such as GitHub Actions can issue an **OIDC token** describing the job
 branch, workflow, environment. The cloud verifies that token and exchanges it for short-lived
 cloud credentials.
 
-```
-GitHub Actions job ──OIDC token (repo, ref, workflow)──► Cloud STS
-                                                          │ checks trust conditions
-                                                          ▼
-                                   short-lived credentials for one deploy role / service account
+```mermaid
+sequenceDiagram
+    participant GH as GitHub Actions job
+    participant STS as Cloud token service (GCP WIF / AWS STS)
+    participant Cloud as Cloud APIs
+    GH->>STS: OIDC token (repo, ref, workflow)
+    STS->>STS: Check trust: repo = org/app, ref = main
+    STS-->>GH: Short-lived credentials (deployer identity)
+    GH->>Cloud: Deploy with those credentials
+    Note over GH,Cloud: No stored keys anywhere
 ```
 
 **Google Cloud — Workload Identity Federation**

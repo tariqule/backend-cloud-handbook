@@ -19,6 +19,17 @@ Cloud VMs and some runtimes expose a **metadata service** at a link-local addres
 hand an attacker your cloud identity. It can also reach private databases, internal admin APIs and
 services that trust "anything inside the network".
 
+## Picture it
+
+```mermaid
+flowchart LR
+    ATK["Attacker"] -->|"URL that resolves to<br/>169.254.169.254"| APP["Your fetcher"]
+    APP -->|"unprotected"| META["Metadata service<br/>credentials"]
+    APP -->|"protected"| CHK{"Resolved IP public?"}
+    CHK -->|"yes"| OK["Fetch with timeouts,<br/>no redirects"]
+    CHK -->|"no"| NO["Reject"]
+```
+
 ## Defences, layered
 
 1. **Allow-list destinations** where possible (only known webhook domains, only your storage bucket).

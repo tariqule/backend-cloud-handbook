@@ -21,8 +21,15 @@ HikariCP). Each app instance keeps, say, 10 connections and hands them to reques
 **2. A pooler between apps and the database** — needed when you have many instances (autoscaling,
 serverless):
 
-```
-50 app instances × 10 = 500 client connections ──► PgBouncer ──► 40 server connections ──► Postgres
+```mermaid
+flowchart LR
+    subgraph Apps["50 app instances"]
+        A1["Instance 1<br/>pool of 10"]
+        A2["Instance 2<br/>pool of 10"]
+        A3["... Instance 50"]
+    end
+    Apps -->|"500 client connections"| PB["PgBouncer<br/>transaction mode"]
+    PB -->|"40 server connections"| PG[("PostgreSQL")]
 ```
 
 ## The connection budget

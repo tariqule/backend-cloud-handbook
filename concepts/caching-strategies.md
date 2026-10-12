@@ -46,6 +46,23 @@ A hot key expires and hundreds of requests miss at once and all hit the database
 - **Jittered TTLs:** `ttl = base ± random` so keys don't all expire together.
 - **Early refresh:** refresh shortly *before* expiry (probabilistically, for hot keys).
 
+## Picture it: stampede protection
+
+```mermaid
+sequenceDiagram
+    participant R1 as Request 1
+    participant R2 as Requests 2..N
+    participant C as Cache
+    participant DB
+    R1->>C: GET key (miss)
+    R2->>C: GET key (miss)
+    R1->>C: SET lock (NX) succeeds
+    R2->>C: SET lock fails, serve stale or wait
+    R1->>DB: Rebuild value
+    R1->>C: SET key, TTL with jitter
+    R2->>C: GET key (hit)
+```
+
 ## Where to cache
 
 | Layer | Use for | Watch out |

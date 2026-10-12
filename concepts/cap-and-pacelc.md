@@ -19,6 +19,18 @@ Networks partition, so **P isn't optional**. CAP says: *during a partition*, cho
 
 CAP is often misread as "pick two of three, always". It's about behaviour **during partitions**.
 
+## Picture it
+
+```mermaid
+flowchart LR
+    C1["Client"] --> N1["Node A"]
+    C2["Client"] --> N2["Node B"]
+    N1 -.-|"network partition: messages lost"| N2
+    N1 --> D{"During the partition"}
+    D -->|"CP"| CP["Refuse or delay writes<br/>to stay consistent"]
+    D -->|"AP"| AP["Keep answering,<br/>reconcile later"]
+```
+
 ## PACELC
 
 Daniel Abadi's extension covers the normal case too:
