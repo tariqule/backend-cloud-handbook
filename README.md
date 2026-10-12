@@ -1,18 +1,32 @@
-# Backend & Cloud Engineering for Senior Engineers
-### A study book of principles, internals and best practices
+# Backend & Cloud Engineering on Google Cloud (GCP) and AWS
+### A study book for senior frontend engineers becoming senior backend and cloud engineers
 
 ---
 
 ## Who this is for
 
-You're a senior engineer — probably frontend — who already knows HTTP and REST, JavaScript and
-TypeScript deeply, async/await, Node basics, testing, Git, Docker basics and how to ship product.
-This book does **not** re-teach any of that.
+**This book is for you if you are:**
+- a **senior frontend or full-stack engineer** (React, Next.js, Vue, Angular) moving into backend and cloud work;
+- a **mid-level backend engineer** who wants the depth and judgment expected of a senior;
+- an engineer who knows **one cloud** and needs to work confidently on **both Google Cloud and AWS**.
 
-It teaches what changes when you own the **server, the data and the infrastructure**: database
-internals, concurrency, distributed failure, production Node, security beyond the basics, cloud
-identity and networking, reliability engineering, and the design judgment expected of a senior
-backend/cloud engineer.
+**You already know:** HTTP and REST, JavaScript and TypeScript deeply, async/await, Node basics,
+testing, Git, Docker basics, and how to ship product. This book does **not** re-teach any of that.
+
+**You will learn** what changes when you own the **server, the data and the infrastructure**:
+production Node, API design beyond CRUD, identity and authorization, PostgreSQL internals,
+concurrency, distributed systems, testing, observability, security engineering, cloud IAM,
+compute and networking, infrastructure as code, reliability and system design.
+
+**This is not for** complete beginners to programming or HTTP, or people looking for a
+click-by-click console tutorial.
+
+## How the clouds are covered
+
+Every principle in this book is cloud-neutral. Whenever a chapter uses a cloud service, it shows
+the **Google Cloud and AWS equivalents side by side** in a **☁️ GCP ↔ AWS** table, including the
+differences that actually trip people up when moving between them. Azure equivalents are listed in
+[Appendix C](#appendix-c--gcp--aws-map-plus-azure).
 
 ### How each chapter works
 
@@ -27,6 +41,10 @@ backend/cloud engineer.
 | 🧠 **Check yourself** | Interview-level questions; answers hidden |
 | 🛠️ **Lab** | Hands-on work that cements the chapter |
 | 📌 **Remember** | The chapter in a few lines |
+
+**Deep dives.** Key terms have their own pages with more detail, code and sources — see the
+[concept deep dives](concepts/README.md) and the [SQL guides](sql/README.md), or the **🔗 Go deeper**
+box at the end of each chapter.
 
 **Running example — TaskFlow:** a multi-tenant team task tracker (orgs, teams, tasks, comments,
 attachments, notifications, dashboards). Every chapter's examples come from it.
@@ -69,9 +87,10 @@ attachments, notifications, dashboards). Every chapter's examples come from it.
 **Appendices**
 - [A · Principles at a glance](#appendix-a--principles-at-a-glance)
 - [B · 12-week study plan](#appendix-b--12-week-study-plan)
-- [C · AWS / GCP / Azure map](#appendix-c--aws--gcp--azure-map)
+- [C · GCP ↔ AWS map (plus Azure)](#appendix-c--gcp--aws-map-plus-azure)
 - [D · Numbers and formulas worth knowing](#appendix-d--numbers-and-formulas-worth-knowing)
 - [E · Further reading](#appendix-e--further-reading)
+- [F · Deep dives: concepts and SQL](#appendix-f--deep-dives-concepts-and-sql)
 
 ---
 
@@ -173,6 +192,9 @@ object storage and emails a signed link. p99 returns to 85 ms.
 ### 🛠️ Lab
 Add event-loop-delay and heap metrics to a service. Write an endpoint that blocks for 500 ms and
 load-test it alongside a fast endpoint; watch the fast one's p99. Then fix it with a worker thread.
+
+### 🔗 Go deeper
+[Event loop and libuv threadpool](concepts/event-loop-and-libuv.md) · [Streams and backpressure](concepts/streams-and-backpressure.md) · [Connection pooling](concepts/connection-pooling.md) · [Little's Law](concepts/littles-law.md)
 
 ### 📌 Remember
 - Event loop lag is the health metric; the threadpool has 4 threads.
@@ -280,6 +302,9 @@ Server side: `UPDATE tasks SET … , version = version + 1 WHERE id = $1 AND ver
 Add ETag/`If-Match` to an update endpoint and idempotency keys to a create endpoint, with tests
 that fire concurrent and duplicate requests.
 
+### 🔗 Go deeper
+[Idempotency](concepts/idempotency.md) · [Optimistic concurrency and ETags](concepts/optimistic-concurrency-etags.md) · [Keyset pagination](concepts/keyset-pagination.md)
+
 ### 📌 Remember
 - Contract-first; scope by identity.
 - Idempotency keys, ETags, keyset pagination with tie-breakers.
@@ -374,6 +399,9 @@ forgets.
 Implement tenant isolation with Postgres RLS and a per-transaction setting, then write a test that
 deliberately omits the tenant filter and proves no cross-tenant rows are returned.
 
+### 🔗 Go deeper
+[JWTs and token verification](concepts/jwt-and-token-verification.md) · [Authorization models](concepts/authorization-models.md) · [Row-level security](concepts/row-level-security.md) · [Workload identity](concepts/workload-identity-federation.md)
+
 ### 📌 Remember
 - Verify tokens fully; keep them short-lived.
 - Workload identity between services.
@@ -455,6 +483,9 @@ used by both queries, with a test asserting the two endpoints agree for the same
 Add an architecture test to a codebase that fails if any service imports the database client, and
 refactor until it passes.
 
+### 🔗 Go deeper
+[The N+1 query problem](concepts/n-plus-one.md) · [Authorization models](concepts/authorization-models.md)
+
 ### 📌 Remember
 - One-way dependencies; rules in the core; I/O at the edges.
 - Modular monolith first; split with a reason.
@@ -510,6 +541,24 @@ WAL. Heavy writes increase WAL volume, replication lag and backup size.
 `INSERT … ON CONFLICT`, `RETURNING`, CTEs, window functions, generated columns, declarative
 partitioning, `SKIP LOCKED`, row-level security, `LISTEN/NOTIFY` (lightweight signalling).
 
+### ☁️ GCP ↔ AWS: managed PostgreSQL
+
+| Concern | Google Cloud | AWS |
+|---|---|---|
+| Managed Postgres | Cloud SQL for PostgreSQL | Amazon RDS for PostgreSQL |
+| Cloud-native, high-performance Postgres | AlloyDB | Aurora PostgreSQL |
+| Passwordless (IAM) database login | Cloud SQL IAM database authentication | RDS / Aurora IAM database authentication |
+| Connection pooling | Managed connection pooling (supported editions) or self-run PgBouncer | RDS Proxy, or self-run PgBouncer |
+| Secure connection helper | Cloud SQL Auth Proxy / language connectors | RDS Proxy, or TLS directly to the endpoint |
+| Read scaling | Read replicas | Read replicas / Aurora replicas |
+| High availability | Regional (HA) instance | Multi-AZ deployment |
+| Query insights | Query Insights | Performance Insights / Database Insights |
+| Private connectivity | Private IP (private services access) or Private Service Connect | Instance in VPC subnets; access via security groups |
+
+**Watch out:** the engines are the same Postgres, so everything in this chapter applies to both.
+What differs is the edges — how you connect privately, how IAM login works, and which pooling
+option you get.
+
 ### 🔍 Worked example
 TaskFlow's database CPU climbs every afternoon and queries slow down. `pg_stat_activity` shows a
 reporting job holding a transaction open for six hours while it streams data. Vacuum can't remove
@@ -544,6 +593,9 @@ oldest-transaction age.
 ### 🛠️ Lab
 Open a transaction and leave it idle while running updates elsewhere; watch dead tuples grow with
 `pg_stat_user_tables`. Then enable `pg_stat_statements` and find your top three queries by total time.
+
+### 🔗 Go deeper
+[MVCC and VACUUM](concepts/mvcc-and-vacuum.md) · [Connection pooling](concepts/connection-pooling.md) · [Reading EXPLAIN ANALYZE](sql/explain-analyze.md)
 
 ### 📌 Remember
 - MVCC → dead tuples → vacuum; long transactions block it.
@@ -628,6 +680,9 @@ turns it into an index scan that reads exactly 50 rows: 2 ms.
 ### 🛠️ Lab
 Load 10M rows, capture plans for five realistic queries, design indexes, and record before/after
 timings and buffer reads.
+
+### 🔗 Go deeper
+[Indexing](concepts/indexing.md) · [The N+1 query problem](concepts/n-plus-one.md) · [Reading EXPLAIN ANALYZE](sql/explain-analyze.md) · [Joins](sql/joins.md) · [Aggregation](sql/aggregation.md) · [NULLs and gotchas](sql/nulls-and-gotchas.md)
 
 ### 📌 Remember
 - Right index type; right column order; partial and covering where useful.
@@ -722,6 +777,9 @@ owner change so the two changes serialize.
 Reproduce write skew with two concurrent sessions, then fix it twice: once with `SERIALIZABLE`
 and a retry loop, once with a row lock. Build a `SKIP LOCKED` worker pool and run three workers.
 
+### 🔗 Go deeper
+[Isolation levels and write skew](concepts/isolation-levels-and-write-skew.md) · [Locks and SKIP LOCKED](sql/locking-and-skip-locked.md) · [Optimistic concurrency](concepts/optimistic-concurrency-etags.md)
+
 ### 📌 Remember
 - Know your isolation level's anomalies; write skew is real.
 - Constraints → atomic statements → optimistic → pessimistic → serializable.
@@ -809,6 +867,9 @@ At no point is there downtime or a long lock.
 Perform a column split with expand/migrate/contract on a 5M-row table while a load test runs;
 confirm zero errors.
 
+### 🔗 Go deeper
+[Zero-downtime migrations](concepts/zero-downtime-migrations.md) · [Window functions (latest-per-group for event tables)](sql/window-functions.md) · [Upserts and RETURNING](sql/upserts-and-returning.md) · [CTEs and subqueries](sql/ctes-and-subqueries.md)
+
 ### 📌 Remember
 - Pick modelling patterns on purpose.
 - Expand → migrate → contract.
@@ -859,6 +920,19 @@ replica, and accept freshness lag.
 - **Hot keys:** shard or replicate them; add local in-process caching for ultra-hot reads.
 - **Never** cache per-user or per-tenant data under a shared key, and never at a shared CDN layer without correct `Vary`/`private` headers.
 
+### ☁️ GCP ↔ AWS: caches and other datastores
+
+| Need | Google Cloud | AWS |
+|---|---|---|
+| Managed Redis / Valkey | Memorystore | ElastiCache / MemoryDB |
+| Document / key-value (serverless) | Firestore | DynamoDB |
+| Wide-column, huge throughput | Bigtable | DynamoDB (or Keyspaces for Cassandra) |
+| Search | Self-run OpenSearch/Elasticsearch or Vertex AI Search | Amazon OpenSearch Service |
+| Data warehouse | BigQuery | Redshift (+ Athena for queries over S3) |
+| Change data capture | Datastream | AWS DMS |
+| Object storage | Cloud Storage | S3 |
+| CDN | Cloud CDN | CloudFront |
+
 ### 🔍 Worked example
 TaskFlow's org leaderboard scans millions of rows and takes 3 s. Product accepts a 60-second
 staleness. Implementation: cache-aside in Redis under `leaderboard:v2:org:<id>`, TTL 60 s ± 10 s
@@ -890,6 +964,9 @@ rebuild per org per minute instead of thousands.
 ### 🛠️ Lab
 Add a cache-aside layer with versioned keys, jittered TTLs and single-flight rebuilds; load test a
 cold start and observe database queries.
+
+### 🔗 Go deeper
+[Caching strategies](concepts/caching-strategies.md) · [CAP and PACELC](concepts/cap-and-pacelc.md)
 
 ### 📌 Remember
 - Postgres first; add stores with reasons.
@@ -947,6 +1024,23 @@ action if a later step fails.
 **Schema evolution for events.** Events are contracts too: version them, only add fields,
 document them, and keep consumers tolerant of unknown fields.
 
+### ☁️ GCP ↔ AWS: messaging and workflows
+
+| Need | Google Cloud | AWS |
+|---|---|---|
+| Pub/sub fan-out | Pub/Sub (topics + subscriptions) | SNS (often fanning out to SQS) |
+| Work queue | Pub/Sub pull subscription, or Cloud Tasks for HTTP task dispatch | SQS (Standard, or FIFO for ordering + dedupe) |
+| Ordering | Pub/Sub ordering keys | SQS FIFO message groups; Kinesis shards |
+| Dedupe / exactly-once help | Pub/Sub exactly-once delivery (pull subscriptions) | SQS FIFO deduplication |
+| Dead-letter queue | Pub/Sub dead-letter topic | SQS dead-letter queue (redrive policy) |
+| Event routing | Eventarc | EventBridge |
+| Streaming log | Pub/Sub, or Managed Service for Apache Kafka | Kinesis, or Amazon MSK (Kafka) |
+| Workflow orchestration | Workflows | Step Functions |
+| Scheduled jobs | Cloud Scheduler | EventBridge Scheduler |
+
+**Watch out:** an AWS "queue" (SQS) and "topic" (SNS) are separate services; on Google Cloud, Pub/Sub
+covers both roles through subscriptions. Whatever the guarantees, keep consumers idempotent.
+
 ### 🔍 Worked example
 Assigning a task must notify the assignee by email and in-app. The use case updates the task and
 inserts `outbox(event_id, type='task.assigned', payload)` in one transaction. A relay publishes to
@@ -980,6 +1074,9 @@ pages on-call.
 ### 🛠️ Lab
 Implement an outbox with a `SKIP LOCKED` relay and an idempotent consumer. Kill the relay and
 consumer at random points during a load test; verify no event is lost or applied twice.
+
+### 🔗 Go deeper
+[Outbox pattern](concepts/outbox-pattern.md) · [Sagas](concepts/sagas.md) · [Idempotency](concepts/idempotency.md) · [Locks and SKIP LOCKED](sql/locking-and-skip-locked.md)
 
 ### 📌 Remember
 - At-least-once is the reality; make consumers idempotent.
@@ -1059,6 +1156,9 @@ stays fast during the next calendar incident.
 Put a fault-injecting proxy (e.g. Toxiproxy) between a service and a dependency. Add latency and
 errors; measure the blast radius before and after adding timeouts, a breaker and a bulkhead.
 
+### 🔗 Go deeper
+[Retries, backoff and jitter](concepts/retries-backoff-jitter.md) · [Circuit breakers, bulkheads and load shedding](concepts/circuit-breakers-bulkheads-load-shedding.md) · [Little's Law](concepts/littles-law.md) · [CAP and PACELC](concepts/cap-and-pacelc.md)
+
 ### 📌 Remember
 - Timeouts, deadlines, safe retries with budgets.
 - Breakers, bulkheads, load shedding, degradation.
@@ -1129,6 +1229,9 @@ real Postgres and asserts exactly one wins; it failed until the use case added a
 ### 🛠️ Lab
 Add a concurrency test and a full authorization matrix test to one critical endpoint.
 
+### 🔗 Go deeper
+[Isolation levels and write skew](concepts/isolation-levels-and-write-skew.md) · [Authorization models](concepts/authorization-models.md)
+
 ### 📌 Remember
 - Real infrastructure in tests.
 - Authorization, error codes, concurrency, migrations.
@@ -1163,6 +1266,22 @@ logs and traces, not metric labels.
   A common pattern (from Google's SRE Workbook) pages when the 1-hour burn rate exceeds 14.4× (2% of
   a 30-day budget in an hour) **and** a short window (5 minutes) confirms it's still happening, with
   slower windows for ticket-level alerts.
+
+### ☁️ GCP ↔ AWS: observability
+
+| Need | Google Cloud | AWS |
+|---|---|---|
+| Logs | Cloud Logging | CloudWatch Logs |
+| Metrics and dashboards | Cloud Monitoring | CloudWatch Metrics / Dashboards |
+| Managed Prometheus | Google Cloud Managed Service for Prometheus | Amazon Managed Service for Prometheus |
+| Tracing | Cloud Trace | AWS X-Ray (or CloudWatch Application Signals) |
+| SLO monitoring | Cloud Monitoring SLOs | CloudWatch Application Signals SLOs |
+| Error tracking | Error Reporting | CloudWatch / third-party tools |
+| Audit logs of admin actions | Cloud Audit Logs | AWS CloudTrail |
+| Instrumentation that works on both | OpenTelemetry | OpenTelemetry (AWS Distro for OpenTelemetry) |
+
+**Tip:** instrument with OpenTelemetry and you can switch backends — or clouds — without
+re-instrumenting your code.
 
 **Debugging method**
 1. What changed? (deploys, config, traffic, dependencies)
@@ -1200,6 +1319,9 @@ validation path. Rollback at 14:09 stops the burn; the postmortem adds a test fo
 ### 🛠️ Lab
 Instrument a service with OpenTelemetry, define one SLO, and configure a multi-window burn-rate
 alert. Break a deploy deliberately and follow the alert to the root cause.
+
+### 🔗 Go deeper
+[Observability signals](concepts/observability-signals.md) · [SLOs, error budgets and burn rate](concepts/slos-error-budgets-burn-rate.md)
 
 ### 📌 Remember
 - Logs, metrics, traces — correlated by trace id.
@@ -1280,6 +1402,9 @@ endpoints that require a special header.
 ### 🛠️ Lab
 Threat-model one feature with STRIDE, then fix the top three risks and add tests that prove each fix.
 
+### 🔗 Go deeper
+[SSRF](concepts/ssrf.md) · [Authorization models](concepts/authorization-models.md) · [JWTs and token verification](concepts/jwt-and-token-verification.md)
+
 ### 📌 Remember
 - Threat-model; defence in depth.
 - Access control, injection, SSRF, mass assignment.
@@ -1331,8 +1456,35 @@ identities (CI systems, other clouds, workforce identity pools).
 **Service-to-service authorization.** Make internal services private and grant callers an explicit
 "invoke" permission. Combined with verified identity tokens, that replaces shared API keys.
 
+### ☁️ GCP ↔ AWS: identity and access
+
+| Concept | Google Cloud | AWS |
+|---|---|---|
+| Top of the hierarchy | Organization → Folders → **Projects** | Organization → OUs → **Accounts** |
+| Org-wide guardrails | Organization Policy constraints | Service Control Policies (SCPs) and Resource Control Policies (RCPs) |
+| Human sign-in (SSO) | Cloud Identity / Google Workspace, Workforce Identity Federation | IAM Identity Center |
+| Workload identity | A **service account** attached to the resource (Cloud Run service, VM, GKE via Workload Identity) | An **IAM role** assumed by the resource (EC2 instance profile, ECS task role, Lambda execution role, EKS Pod Identity / IRSA) |
+| Permission bundles | Predefined and custom roles | AWS-managed and customer-managed policies |
+| Where permissions are granted | Allow policies bound **on resources** (project, bucket, service…) | **Identity-based** policies on roles/users plus **resource-based** policies (bucket, queue, key) |
+| Explicit deny | IAM deny policies | `Deny` statements (always win) |
+| Letting a deployer launch something as another identity | `iam.serviceAccountUser` (actAs) on the runtime service account | `iam:PassRole` on the runtime role |
+| Keyless CI/CD | Workload Identity Federation (OIDC from GitHub, GitLab…) | IAM OIDC identity provider + `AssumeRoleWithWebIdentity` |
+| Private service called only by one caller | Grant `roles/run.invoker` on the Cloud Run service to the caller's service account | IAM auth on Lambda function URLs, API Gateway IAM authorization, or VPC Lattice auth policies |
+| Finding over-broad access | IAM Recommender, Policy Analyzer | IAM Access Analyzer |
+| Secrets | Secret Manager | Secrets Manager / SSM Parameter Store |
+
+**Watch out when moving between them**
+- On **GCP**, you grant *a principal a role on a resource*. On **AWS**, permission is the
+  combination of identity policies, resource policies, SCPs/RCPs, permission boundaries and session
+  policies — and **any explicit deny wins**. Debug AWS access with the policy simulator and
+  Access Analyzer; debug GCP access with Policy Troubleshooter.
+- A GCP **project** and an AWS **account** play the same role: the unit of isolation and billing.
+  Use one per environment on either cloud.
+- "Service account" on GCP ≈ "IAM role assumed by a workload" on AWS. Long-lived keys exist on both
+  (service account keys, IAM user access keys) — avoid both.
+
 ### 🔍 Worked example
-TaskFlow's IAM design:
+TaskFlow's IAM design (names written cloud-neutrally — on GCP each is a service account, on AWS an IAM role):
 - `taskflow-api-build`: may push images to one registry and deploy one service; may act as the runtime identity.
 - `taskflow-api-runtime`: may connect to its database (IAM auth), read two secrets, publish to one topic.
 - `taskflow-web-runtime`: may **invoke** the private API service — nothing else.
@@ -1367,6 +1519,9 @@ touch other projects.
 ### 🛠️ Lab
 Set up OIDC federation from GitHub Actions to your cloud, scoped to one repo and branch, and deploy
 a service with separate build and runtime identities.
+
+### 🔗 Go deeper
+[Least privilege in cloud IAM](concepts/least-privilege-iam.md) · [Workload identity and keyless CI/CD](concepts/workload-identity-federation.md)
 
 ### 📌 Remember
 - Guardrails at the org level; separate projects per environment.
@@ -1422,12 +1577,61 @@ PodDisruptionBudgets, namespaces and network policies.
 - **Zero trust:** authenticate and authorize every hop; the network is not a security boundary on its own.
 - **DNS and service discovery;** health checks at every layer.
 
+### ☁️ GCP ↔ AWS: compute
+
+| Need | Google Cloud | AWS |
+|---|---|---|
+| Serverless containers (the default) | Cloud Run (services, jobs, worker pools) | App Runner, or ECS on Fargate |
+| Functions | Cloud Run functions | Lambda |
+| Kubernetes | GKE (Standard or Autopilot) | EKS (with Fargate or Auto Mode) |
+| Virtual machines | Compute Engine | EC2 |
+| Container registry | Artifact Registry | ECR |
+| Revisions / traffic splitting | Cloud Run revisions with traffic splits and tagged URLs | Lambda aliases with weighted routing; ECS blue/green deployments; App Runner deployments |
+| Scale-to-zero | Cloud Run (default) | Lambda (always); App Runner can pause; Fargate services don't scale to zero by default |
+| Batch / background jobs | Cloud Run jobs, Batch | AWS Batch, ECS scheduled tasks |
+
+### ☁️ GCP ↔ AWS: networking
+
+| Need | Google Cloud | AWS |
+|---|---|---|
+| Private network | VPC — **global**, with regional subnets | VPC — **regional**, with subnets per Availability Zone |
+| Serverless reaching the VPC | Direct VPC egress (or Serverless VPC Access connector) | Lambda / ECS tasks attached to VPC subnets (ENIs) |
+| Private access to Google/AWS managed services | Private Google Access, private services access, Private Service Connect | VPC endpoints (gateway and interface / PrivateLink) |
+| Outbound internet from private resources | Cloud NAT | NAT Gateway |
+| Firewalls | VPC firewall rules / firewall policies | Security groups (stateful, per resource) and network ACLs |
+| Load balancing | Cloud Load Balancing (global external Application LB, regional LBs) | Application Load Balancer, Network Load Balancer, Global Accelerator |
+| WAF | Cloud Armor | AWS WAF |
+| Authentication in front of apps | Identity-Aware Proxy (IAP) | AWS Verified Access, or ALB with OIDC/Cognito authentication |
+| Admin access to private hosts/databases | IAP TCP forwarding (to a bastion) | SSM Session Manager (port forwarding) |
+| DNS | Cloud DNS | Route 53 |
+| Connecting VPCs | VPC Network Peering, Network Connectivity Center | VPC peering, Transit Gateway |
+
+**Watch out when moving between them**
+- A GCP VPC spans **all regions**; an AWS VPC lives in **one region**. Multi-region on AWS means
+  multiple VPCs connected together.
+- AWS **security groups** attach to resources and reference each other; GCP **firewall rules**
+  target instances by network tags or service accounts.
+- On AWS, high availability means spreading subnets across **Availability Zones** yourself; many
+  GCP serverless services are regional by default.
+
 ### 🔍 Worked example
 TaskFlow's architecture: users hit a global load balancer with WAF and an identity-aware proxy; the
 web app (serverless container) calls the private API service using its own identity token; the API
 reaches Postgres over private IP via VPC egress; outbound calls to third parties go through NAT with
 fixed IPs that partners allow-list; engineers inspect the database through an identity-aware tunnel
 to a bastion. No database or internal service has a public address.
+
+The same design on each cloud:
+
+| Piece | Google Cloud | AWS |
+|---|---|---|
+| Edge, WAF, sign-in | Global external Application Load Balancer + Cloud Armor + IAP | CloudFront + AWS WAF + ALB with OIDC (or Verified Access) |
+| Web app | Cloud Run service | App Runner or ECS Fargate service |
+| Private API | Cloud Run service, ingress internal, `run.invoker` granted to the web app's service account | ECS Fargate service on an internal ALB, or a Lambda function URL with IAM auth |
+| Database | Cloud SQL (private IP), IAM database auth | RDS PostgreSQL in private subnets, IAM database auth |
+| API → database path | Direct VPC egress | ECS tasks in private subnets with security group rules |
+| Outbound with fixed IPs | Cloud NAT with reserved IPs | NAT Gateway with Elastic IPs |
+| Admin access | IAP TCP forwarding to a bastion VM | SSM Session Manager port forwarding |
 
 ### ✅ Best practices
 - ✅ Serverless containers by default; Kubernetes with a reason.
@@ -1454,6 +1658,9 @@ to a bastion. No database or internal service has a public address.
 ### 🛠️ Lab
 Deploy a service privately with a database on private IP, controlled egress, a canary revision at
 10% traffic and a rollback.
+
+### 🔗 Go deeper
+[Connection pooling](concepts/connection-pooling.md) · [Least privilege in cloud IAM](concepts/least-privilege-iam.md)
 
 ### 📌 Remember
 - Pick compute by need; tune it.
@@ -1495,6 +1702,19 @@ main: sign + push by digest → migrate (expand) → deploy canary → smoke + S
 - **Migrations:** backward compatible, applied before code, with lock timeouts (Chapter 8).
 - **Monorepos:** path-filtered pipelines so changing one app doesn't deploy others.
 
+### ☁️ GCP ↔ AWS: infrastructure as code and delivery
+
+| Need | Google Cloud | AWS |
+|---|---|---|
+| Cross-cloud IaC | Terraform / OpenTofu (`google` provider) | Terraform / OpenTofu (`aws` provider) |
+| Native IaC | Infrastructure Manager (runs Terraform) | CloudFormation, AWS CDK |
+| Terraform remote state | Cloud Storage bucket (built-in locking) | S3 bucket (native S3 locking in Terraform 1.10+, or DynamoDB lock table) |
+| Managed CI/CD | Cloud Build, Cloud Deploy | CodeBuild, CodePipeline, CodeDeploy |
+| GitHub Actions → cloud, no keys | `google-github-actions/auth` with Workload Identity Federation | `aws-actions/configure-aws-credentials` with an IAM OIDC provider |
+| Progressive delivery | Cloud Run traffic splitting; Cloud Deploy canary | CodeDeploy canary/linear for Lambda and ECS; Lambda weighted aliases |
+| Policy as code | Organization Policy, custom constraints; OPA/Conftest on plans | SCPs, AWS Config rules, CloudFormation Guard; OPA/Conftest on plans |
+| Drift detection | Scheduled `terraform plan` | Scheduled `terraform plan`; CloudFormation drift detection |
+
 ### 🔍 Worked example
 Shipping TaskFlow's assignee change (Chapter 8) end to end: a Terraform PR adds the new topic and
 IAM grant (plan reviewed, applied on merge); the app PR's pipeline runs the expand migration,
@@ -1526,6 +1746,9 @@ behaviour per org; two releases later, the contract migration drops the old colu
 ### 🛠️ Lab
 Build a pipeline with a PR preview environment, keyless deploy, canary with automated rollback on
 error rate, and a Terraform repo with policy checks.
+
+### 🔗 Go deeper
+[Workload identity and keyless CI/CD](concepts/workload-identity-federation.md) · [Zero-downtime migrations](concepts/zero-downtime-migrations.md)
 
 ### 📌 Remember
 - State, modules, plan-in-PR, drift, policy as code.
@@ -1591,6 +1814,9 @@ migration plan, observability, cost, open questions. Short beats exhaustive. Dec
 ### 🛠️ Lab
 Write a two-page design doc for: a rate limiter, a webhook delivery system, or a multi-tenant file
 storage service. Get it reviewed.
+
+### 🔗 Go deeper
+[CAP and PACELC](concepts/cap-and-pacelc.md) · [Outbox pattern](concepts/outbox-pattern.md) · [Keyset pagination](concepts/keyset-pagination.md) · [SLOs, error budgets and burn rate](concepts/slos-error-budgets-burn-rate.md)
 
 ### 📌 Remember
 - Requirements → estimates → contracts → data → architecture → deep dives → reliability → trade-offs.
@@ -1731,39 +1957,52 @@ Build TaskFlow's backend as you go.
 | 8 | 11 | Fault injection; timeouts, breakers, bulkheads, retry budgets |
 | 9 | 12–13 | Concurrency and authz test matrix; OpenTelemetry; SLO with burn-rate alerts |
 | 10 | 14 | STRIDE threat model; fix SSRF/mass-assignment risks; supply-chain checks in CI |
-| 11 | 15–16 | Cloud deploy: OIDC CI, build/runtime identities, private DB, controlled egress, canary |
+| 11 | 15–16 | Cloud deploy on **GCP, then repeat on AWS**: OIDC CI, build/runtime identities, private DB, controlled egress, canary. Use the ☁️ tables to map each step |
 | 12 | 17–19 | Terraform with policy checks and drift detection; design doc and ADRs for 10× scale |
 
-**Certifications worth the time:** AWS Solutions Architect Associate, Google Professional Cloud
-Architect (or Associate Cloud Engineer first), Azure Solutions Architect Expert, HashiCorp
-Terraform Associate.
+**Certifications worth the time:**
+- **Google Cloud:** Associate Cloud Engineer, then Professional Cloud Architect (or Professional Cloud Developer).
+- **AWS:** Solutions Architect – Associate, then Developer – Associate or Solutions Architect – Professional.
+- **Both:** HashiCorp Terraform Associate.
 
 ---
 
-## Appendix C · AWS / GCP / Azure map
+## Appendix C · GCP ↔ AWS map (plus Azure)
 
-| Need | AWS | Google Cloud | Azure |
+| Need | Google Cloud | AWS | Azure |
 |---|---|---|---|
-| Serverless containers | App Runner / ECS on Fargate | Cloud Run | Container Apps |
-| Kubernetes | EKS | GKE | AKS |
-| Functions | Lambda | Cloud Run functions | Azure Functions |
-| Managed Postgres | RDS / Aurora | Cloud SQL / AlloyDB | Azure Database for PostgreSQL |
-| Connection pooling | RDS Proxy | Managed connection pooling (Cloud SQL) / PgBouncer | PgBouncer (built-in on Flexible Server) |
-| NoSQL | DynamoDB | Firestore / Bigtable | Cosmos DB |
-| Object storage | S3 | Cloud Storage | Blob Storage |
-| Warehouse | Redshift | BigQuery | Synapse / Fabric |
-| Queues / pub-sub | SQS / SNS / EventBridge | Cloud Tasks / Pub/Sub / Eventarc | Service Bus / Event Grid |
-| Workflow orchestration | Step Functions | Workflows | Logic Apps / Durable Functions |
-| Cache | ElastiCache / MemoryDB | Memorystore | Azure Cache for Redis |
-| Registry | ECR | Artifact Registry | ACR |
-| Secrets | Secrets Manager | Secret Manager | Key Vault |
-| IAM | IAM + Organizations SCPs | IAM + Organization Policies | Entra ID + Azure RBAC + Azure Policy |
-| Identity-aware access | Verified Access | Identity-Aware Proxy | Entra application proxy |
-| Private service access | PrivateLink | Private Service Connect | Private Endpoint |
-| WAF / edge | WAF + CloudFront | Cloud Armor + Cloud CDN | Front Door + WAF |
-| Observability | CloudWatch / X-Ray | Cloud Logging / Monitoring / Trace | Azure Monitor / App Insights |
-| Keyless CI auth | IAM OIDC provider | Workload Identity Federation | Workload identity federation |
-| Native IaC | CloudFormation / CDK | Infrastructure Manager | Bicep |
+| Unit of isolation and billing | Project | Account | Subscription |
+| Org guardrails | Organization Policy | SCPs / RCPs | Azure Policy |
+| Human SSO | Cloud Identity / Workforce Identity Federation | IAM Identity Center | Entra ID |
+| Workload identity | Service account | IAM role | Managed identity |
+| Keyless CI auth | Workload Identity Federation | IAM OIDC provider | Workload identity federation |
+| Serverless containers | Cloud Run | App Runner / ECS on Fargate | Container Apps |
+| Functions | Cloud Run functions | Lambda | Azure Functions |
+| Kubernetes | GKE | EKS | AKS |
+| Virtual machines | Compute Engine | EC2 | Virtual Machines |
+| Managed Postgres | Cloud SQL / AlloyDB | RDS / Aurora | Azure Database for PostgreSQL |
+| Connection pooling | Managed pooling (supported editions) / PgBouncer | RDS Proxy | Built-in PgBouncer (Flexible Server) |
+| NoSQL | Firestore / Bigtable | DynamoDB | Cosmos DB |
+| Cache | Memorystore | ElastiCache / MemoryDB | Azure Cache for Redis |
+| Object storage | Cloud Storage | S3 | Blob Storage |
+| Warehouse | BigQuery | Redshift / Athena | Synapse / Fabric |
+| Pub/sub and queues | Pub/Sub / Cloud Tasks | SNS / SQS | Service Bus / Event Grid |
+| Event routing | Eventarc | EventBridge | Event Grid |
+| Workflow orchestration | Workflows | Step Functions | Logic Apps / Durable Functions |
+| Scheduler | Cloud Scheduler | EventBridge Scheduler | Logic Apps / Functions timer |
+| Registry | Artifact Registry | ECR | Container Registry |
+| Secrets | Secret Manager | Secrets Manager / SSM Parameter Store | Key Vault |
+| Identity-aware access to apps | Identity-Aware Proxy | Verified Access / ALB OIDC | Entra application proxy |
+| Private access to managed services | Private Service Connect / private services access | PrivateLink / VPC endpoints | Private Endpoint |
+| NAT | Cloud NAT | NAT Gateway | NAT Gateway |
+| Load balancing | Cloud Load Balancing | ALB / NLB | Application Gateway / Load Balancer |
+| WAF and CDN | Cloud Armor / Cloud CDN | AWS WAF / CloudFront | Front Door + WAF |
+| Bastion-free admin access | IAP TCP forwarding | SSM Session Manager | Azure Bastion |
+| DNS | Cloud DNS | Route 53 | Azure DNS |
+| Logs, metrics, traces | Cloud Logging / Monitoring / Trace | CloudWatch / X-Ray | Azure Monitor / Application Insights |
+| Audit logs | Cloud Audit Logs | CloudTrail | Activity Log |
+| Native IaC | Infrastructure Manager | CloudFormation / CDK | Bicep |
+| Managed CI/CD | Cloud Build / Cloud Deploy | CodeBuild / CodePipeline / CodeDeploy | Azure DevOps Pipelines |
 
 ---
 
@@ -1797,6 +2036,27 @@ Terraform Associate.
 - OWASP Top 10, ASVS and Cheat Sheet Series
 - AWS Well-Architected, Google Cloud Architecture Framework, Azure Well-Architected
 - Node.js docs: event loop, worker threads, streams, diagnostics
+
+---
+
+## Appendix F · Deep dives: concepts and SQL
+
+**Concepts** — [index](concepts/README.md)
+
+| APIs & services | Data | Distributed systems | Security & cloud |
+|---|---|---|---|
+| [Idempotency](concepts/idempotency.md) | [MVCC and VACUUM](concepts/mvcc-and-vacuum.md) | [Outbox pattern](concepts/outbox-pattern.md) | [JWTs and verification](concepts/jwt-and-token-verification.md) |
+| [Optimistic concurrency / ETags](concepts/optimistic-concurrency-etags.md) | [Isolation levels and write skew](concepts/isolation-levels-and-write-skew.md) | [Sagas](concepts/sagas.md) | [Authorization models](concepts/authorization-models.md) |
+| [Keyset pagination](concepts/keyset-pagination.md) | [Indexing](concepts/indexing.md) | [Retries, backoff, jitter](concepts/retries-backoff-jitter.md) | [Row-level security](concepts/row-level-security.md) |
+| [Event loop and libuv](concepts/event-loop-and-libuv.md) | [N+1 queries](concepts/n-plus-one.md) | [Circuit breakers, bulkheads, load shedding](concepts/circuit-breakers-bulkheads-load-shedding.md) | [SSRF](concepts/ssrf.md) |
+| [Streams and backpressure](concepts/streams-and-backpressure.md) | [Connection pooling](concepts/connection-pooling.md) | [Little's Law](concepts/littles-law.md) | [Least privilege IAM](concepts/least-privilege-iam.md) |
+| | [Zero-downtime migrations](concepts/zero-downtime-migrations.md) | [CAP and PACELC](concepts/cap-and-pacelc.md) | [Workload identity / keyless CI](concepts/workload-identity-federation.md) |
+| | [Caching strategies](concepts/caching-strategies.md) | [SLOs and burn rate](concepts/slos-error-budgets-burn-rate.md) | |
+| | | [Observability signals](concepts/observability-signals.md) | |
+
+**SQL guides** — [index and practice schema](sql/README.md)
+
+[Joins](sql/joins.md) · [Aggregation](sql/aggregation.md) · [CTEs and subqueries](sql/ctes-and-subqueries.md) · [Window functions](sql/window-functions.md) · [Upserts and RETURNING](sql/upserts-and-returning.md) · [Reading EXPLAIN ANALYZE](sql/explain-analyze.md) · [Locks and SKIP LOCKED](sql/locking-and-skip-locked.md) · [NULLs and gotchas](sql/nulls-and-gotchas.md)
 
 ---
 
