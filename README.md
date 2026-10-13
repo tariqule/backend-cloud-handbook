@@ -33,6 +33,7 @@ differences that actually trip people up when moving between them. Azure equival
 | Section | Purpose |
 |---|---|
 | 🎯 **Outcomes** | What you should be able to do afterwards |
+| 📘 **Key terms** | Every technical word in the chapter, explained in plain English |
 | 🔁 **Intuition check** | The common assumption, and where it breaks |
 | 📖 **Core ideas** | The concepts, at depth |
 | 🗺️ **Picture it** | A diagram of the idea |
@@ -43,7 +44,10 @@ differences that actually trip people up when moving between them. Azure equival
 | 🛠️ **Lab** | Hands-on work that cements the chapter |
 | 📌 **Remember** | The chapter in a few lines |
 
-**Deep dives.** Key terms have their own pages with more detail, code and sources — see the
+**New words.** Each chapter defines its jargon in a **📘 Key terms** table before using it, and
+[Appendix G](#appendix-g--glossary) collects every term alphabetically.
+
+**Deep dives.** Many terms also have their own pages with more detail, code and sources — see the
 [concept deep dives](concepts/README.md) and the [SQL guides](sql/README.md), or the **🔗 Go deeper**
 box at the end of each chapter.
 
@@ -92,6 +96,7 @@ attachments, notifications, dashboards). Every chapter's examples come from it.
 - [D · Numbers and formulas worth knowing](#appendix-d--numbers-and-formulas-worth-knowing)
 - [E · Further reading](#appendix-e--further-reading)
 - [F · Deep dives: concepts and SQL](#appendix-f--deep-dives-concepts-and-sql)
+- [G · Glossary](#appendix-g--glossary)
 
 ---
 
@@ -106,12 +111,70 @@ attachments, notifications, dashboards). Every chapter's examples come from it.
 - Use the libuv threadpool, worker threads and streams deliberately
 - Run Node correctly behind a load balancer: pooling, keep-alive, shutdown, request context
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Node.js** | A program that runs JavaScript outside the browser, so you can write servers in JavaScript. It's built from two main parts: V8 and libuv. |
+| **V8** | Google's JavaScript engine (the same one inside Chrome). It turns your JavaScript into machine code and runs it. It also manages memory for your objects. |
+| **libuv** | A C library inside Node.js that talks to the operating system for you: network sockets, files, timers, DNS. It provides the event loop and a small pool of helper threads. You never call it directly — Node's APIs use it under the hood. |
+| **Event loop** | The loop libuv runs forever: "is any I/O finished? any timer due?" — and if so, it calls your JavaScript callback. Only one callback runs at a time, on one thread. |
+| **Thread** | An independent line of execution inside a process. Your JavaScript runs on one main thread; libuv keeps a few extra threads for work the OS can't do asynchronously. |
+| **libuv threadpool** | A small team of background threads (4 by default) that libuv uses for slow work the OS can't do asynchronously: file reads, password hashing, compression, `dns.lookup`. If all 4 are busy, other such work waits. |
+| **Blocking / synchronous code** | Code that keeps the main thread busy until it finishes (a huge loop, `JSON.parse` of a giant string, `fs.readFileSync`). While it runs, the server can't answer anyone else. |
+| **Microtask** | A tiny callback queued by a resolved promise (`.then`, `await`) or `process.nextTick`. Node runs all pending microtasks before moving on to the next event. |
+| **Event loop lag** | How late the event loop is in running work it scheduled. Near zero is healthy; hundreds of milliseconds means something is blocking the thread. |
+| **worker_threads** | A Node module that runs JavaScript on extra threads, for CPU-heavy work that would otherwise block the main thread. |
+| **Stream** | Data processed in small chunks as it arrives, instead of loading everything into memory first (like watching a video while it downloads). |
+| **Backpressure** | When the receiver is slower than the sender, the sender pauses until the receiver catches up — so memory doesn't fill up with waiting data. |
+| **Connection pool** | A set of already-open database connections that requests borrow and return, instead of opening a new one each time (which is slow). |
+| **Keep-alive** | Reusing one network connection for many HTTP requests instead of reconnecting (and redoing the TLS handshake) every time. |
+| **Timeout / AbortSignal** | A maximum time to wait for something. `AbortSignal` is the standard way to cancel a request or operation that's taking too long. |
+| **AsyncLocalStorage** | A Node feature that keeps per-request data (request id, user) available everywhere in that request's async code, without passing it as a parameter. |
+| **SIGTERM** | The signal the operating system or platform sends to say "please shut down". Deploys and scale-downs send it to your server. |
+| **Graceful shutdown** | On SIGTERM: stop accepting new requests, finish the ones in progress, close connections, then exit. |
+| **Heap / garbage collection (GC)** | The heap is the memory where your objects live. The garbage collector periodically frees objects nothing uses any more; big collections can pause your code briefly. |
+| **OOM kill** | "Out of memory": the container uses more memory than its limit, so the platform kills the process instantly. |
+
 ### 🔁 Intuition check
 A slow function feels like a local problem. On a server, a long synchronous task stalls **every
 request on that instance**, and a small memory leak accumulates for weeks because the process never
 restarts on its own.
 
 ### 📖 Core ideas
+
+### 📘 Explained simply: how Node.js actually runs your server
+
+Node.js is made of two big pieces working together:
+
+- **V8** runs your JavaScript. It's fast, but it runs on **one thread** — it can only do one thing
+  at a time.
+- **libuv** is the part that deals with the outside world: network connections, files, timers and
+  DNS. Think of it as Node's **receptionist**.
+
+When your code does something slow, like querying the database, it doesn't wait. It hands the job
+to libuv and says "call me back when it's done", then moves on to the next request. That
+"check what's finished, run its callback, repeat" cycle is the **event loop**.
+
+How libuv gets the work done depends on the kind of work:
+
+| Kind of work | Who does it | What it means for you |
+|---|---|---|
+| Network I/O (HTTP, database queries over TCP) | The operating system, asynchronously | Scales to thousands of connections cheaply |
+| Files, `dns.lookup`, password hashing (`crypto.pbkdf2`, `scrypt`), compression (`zlib`) | libuv's **threadpool** — 4 helper threads by default | If 4 slow jobs run at once, the next ones queue behind them |
+| Your own JavaScript (loops, `JSON.parse`, sorting) | The **one main thread** | While it runs, **nothing else can** — every other request waits |
+
+A restaurant analogy: the main thread is the only waiter, the OS is the kitchen, and the threadpool
+is four kitchen helpers. The waiter takes orders and serves dishes quickly as long as they never
+stop to cook themselves. If they do — your code running a long synchronous task — every table waits.
+
+Two practical consequences shape this whole chapter:
+1. **Never do heavy synchronous work on the request path** — move it to a worker thread, a queue,
+   or the database.
+2. **Watch event loop lag** — it tells you when the waiter is stuck.
+
+Deep dive: [Event loop and libuv threadpool](concepts/event-loop-and-libuv.md).
 
 **The event loop, in production terms.** JavaScript runs on one thread per process. Each loop
 iteration processes timers, I/O callbacks, `setImmediate` and close handlers, with microtasks
@@ -225,6 +288,27 @@ load-test it alongside a fast endpoint; watch the fast one's p99. Then fix it wi
 - Design idempotent, concurrency-safe and evolvable APIs
 - Choose pagination, versioning and error models deliberately
 - Use HTTP features (conditional requests, caching headers) that most APIs ignore
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **API contract** | The agreed shape of an API: endpoints, request and response fields, error codes. Clients build against it, so changing it can break them. |
+| **OpenAPI** | A standard file format for describing a REST API's contract, used to generate docs, clients and tests. |
+| **Idempotent** | Doing it once or ten times has the same effect. `PUT` and `DELETE` are; a plain `POST` that creates something isn't. |
+| **Idempotency key** | A unique id the client sends with a request so the server can recognise a retry and return the first result instead of doing the work twice. |
+| **ETag** | A short version label the server sends with a resource (like `"v7"`). It changes whenever the resource changes. |
+| **If-Match / 412** | The client says "only update if it's still version v7". If someone changed it meanwhile, the server refuses with `412 Precondition Failed`. |
+| **304 Not Modified** | The server's reply to "has this changed since version v7?" when it hasn't — no body is sent, saving bandwidth. |
+| **Cache-Control** | An HTTP header telling browsers and CDNs whether and how long they may cache a response. `private` means only the user's own browser. |
+| **Offset pagination** | "Skip 100 rows, give me the next 50." Simple, but slow on big tables and unstable when rows are added. |
+| **Keyset (cursor) pagination** | "Give me 50 rows after this one." The cursor remembers where the last page ended. Fast and stable. |
+| **Tie-breaker** | A unique column (usually `id`) added to the sort so rows with equal values (same timestamp) always come in the same order. |
+| **Problem Details (RFC 9457)** | A standard JSON format for API errors. Optional, but a good template if you don't have one. |
+| **Deprecation / Sunset headers** | Response headers that warn clients an endpoint is old (Deprecation) and when it will be removed (Sunset). |
+| **202 Accepted** | "Request received, processing in the background." Used for long jobs, with a separate URL to check progress. |
+| **GraphQL dataloader** | A helper that collects the ids requested by many GraphQL resolvers and loads them in one batched query, avoiding N+1 queries. |
 
 ### 🔁 Intuition check
 It's easy to think of an API as a set of endpoints. Clients see it as a promise: once they depend
@@ -359,6 +443,32 @@ that fire concurrent and duplicate requests.
 - Choose and implement an authorization model that scales with the product
 - Prevent broken access control systematically, not case by case
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Authentication (authn)** | Proving who someone is (login, tokens). |
+| **Authorization (authz)** | Deciding what an authenticated caller is allowed to do. |
+| **Identity provider (IdP)** | A service that handles login for you and issues tokens — Okta, Auth0, Entra ID, Google, Cognito. |
+| **OAuth 2.0** | A standard for granting an app limited access on a user's behalf ("allow this app to read your calendar"). |
+| **OpenID Connect (OIDC)** | A login standard built on OAuth 2.0. It adds an ID token that says who the user is. "Sign in with Google" uses it. |
+| **JWT (JSON Web Token)** | A signed, base64-encoded piece of JSON carrying claims (who, for which service, until when). Readable by anyone, but only the issuer can sign it. |
+| **JWKS** | A public URL where an identity provider publishes the keys used to verify its tokens' signatures. |
+| **kid** | "Key id" — a field in the token header saying which JWKS key signed it. Lets providers rotate keys safely. |
+| **iss / aud / exp** | Token claims: **iss** = who issued it, **aud** = which service it's for, **exp** = when it expires. You must check all three. |
+| **Access token vs refresh token** | Access tokens are short-lived passes sent with every request. Refresh tokens are longer-lived and only used to get new access tokens. |
+| **PKCE** | An extra step in the OAuth login flow that stops a stolen authorization code from being used. Required for SPAs and mobile apps. |
+| **BFF (backend-for-frontend)** | A small server layer owned by the frontend that holds tokens safely and calls backend APIs on the browser's behalf. |
+| **HttpOnly cookie** | A cookie JavaScript can't read, so a cross-site-scripting bug can't steal it. |
+| **Workload identity** | An identity the cloud platform gives to a running service, so it can prove who it is without a stored password or key. |
+| **mTLS** | Mutual TLS: both client and server present certificates, so each side proves its identity. |
+| **RBAC / ABAC / ReBAC** | Ways to decide permissions: by **role** (admin), by **attributes** (own team, business hours), or by **relationships** (shared with your group). |
+| **Zanzibar** | Google's global permission system. Its paper inspired open-source ReBAC tools like OpenFGA and SpiceDB. |
+| **Tenant** | One customer organization in a multi-customer (multi-tenant) app. Their data must never leak to other tenants. |
+| **Row-level security (RLS)** | A Postgres feature that automatically filters rows per session, e.g. only the current tenant's rows. |
+| **IDOR** | Insecure Direct Object Reference: reading or changing an object just by guessing its id, because the server never checked ownership. |
+
 ### 🔁 Intuition check
 Login is often treated as the hard part. The harder part is what happens after it: **verifying**
 every token, **deciding** permissions on every object, and handling leaked tokens and changed roles.
@@ -477,6 +587,24 @@ deliberately omits the tenant filter and proves no cross-tenant rows are returne
 - Decide between a modular monolith and services with real criteria
 - Enforce boundaries automatically
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Layered architecture** | Splitting code into layers with one job each (transport, business logic, data access) where dependencies only point one way. |
+| **Transport layer** | The edge that speaks HTTP, gRPC or queue messages: parses input, calls a use case, formats output. |
+| **Application service / use case** | A function for one business action ("assign task"): checks permissions, coordinates steps, runs the transaction. |
+| **Domain logic** | Pure business rules with no I/O (no database, no HTTP), so they're easy to test. |
+| **Port** | An interface the core code defines for what it needs ("find tasks for a team"), without saying how. |
+| **Adapter** | A concrete implementation of a port: the Postgres repository, the HTTP client, the queue publisher. |
+| **Dependency injection** | Passing a class the things it needs (like a repository) instead of it creating them, so you can swap them in tests. |
+| **Composition root** | The one place at startup where all concrete objects are created and wired together. |
+| **Unit of work** | An abstraction that runs several data operations in one transaction, so they all succeed or all fail. |
+| **Modular monolith** | One deployable app, organized internally into independent modules with clear boundaries. |
+| **Microservices** | Many small, separately deployed services that talk over the network. |
+| **Distributed monolith** | Services that are deployed separately but share a database or must change together — the costs of both, the benefits of neither. |
+
 ### 🔁 Intuition check
 Most codebases start clean and tangle as features pile up. Backend code lives for years and carries
 data invariants, so tangled business rules become expensive bugs, not just messy code.
@@ -576,6 +704,29 @@ refactor until it passes.
 - Explain MVCC and its operational consequences (bloat, vacuum, long transactions)
 - Understand connections and pooling at the database level
 - Read the planner's mind well enough to predict query behaviour
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **MVCC** | Multi-Version Concurrency Control: Postgres keeps old row versions so readers see a consistent snapshot without blocking writers. |
+| **Tuple** | Postgres's word for one stored version of a row. |
+| **Dead tuple** | An old row version no transaction needs any more. It wastes space until VACUUM removes it. |
+| **Bloat** | Tables and indexes growing larger than their live data because of dead tuples, making queries slower. |
+| **VACUUM / autovacuum** | The process that reclaims dead tuples. Autovacuum runs it automatically in the background. |
+| **Snapshot** | The view of committed data a transaction or statement sees — like a photo taken at a moment in time. |
+| **Idle in transaction** | A session that started a transaction and then just sits there without committing — it pins old snapshots and blocks cleanup. |
+| **Transaction ID wraparound** | Postgres numbers transactions with 32-bit counters; VACUUM "freezes" old rows so the counter can safely wrap around. |
+| **max_connections** | The hard limit on simultaneous database connections. |
+| **PgBouncer** | A lightweight proxy that lets many app connections share a few real database connections. |
+| **Transaction pooling** | A PgBouncer mode where a real connection is lent for one transaction at a time. Efficient, but session-level settings don't carry over. |
+| **Query planner** | The part of Postgres that decides *how* to run a query (which indexes, which join method) based on statistics. |
+| **Statistics / ANALYZE** | Summaries of your data (row counts, value distributions) the planner uses. `ANALYZE` refreshes them. |
+| **pg_stat_statements** | A Postgres extension that records every query's call count and total time, so you know what to optimize. |
+| **WAL (write-ahead log)** | Postgres writes every change to a log first, for crash safety. Replicas and backups replay it. |
+| **Read replica** | A read-only copy of the database that follows the primary (slightly behind), used to spread read load. |
+| **jsonb** | Postgres's binary JSON column type, which can be indexed and queried efficiently. |
 
 ### 🔁 Intuition check
 Many engineers treat the database as a black box behind an ORM. Postgres rewards understanding its
@@ -698,6 +849,26 @@ Open a transaction and leave it idle while running updates elsewhere; watch dead
 - Read `EXPLAIN (ANALYZE, BUFFERS)` and fix common bad plans
 - Eliminate N+1 and other systemic performance bugs
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Index** | A separate sorted structure that lets the database find rows quickly, like a book's index. |
+| **B-tree** | The default index type: a balanced sorted tree, good for equality, ranges and sorting. |
+| **GIN / GiST / BRIN** | Special index types: **GIN** for JSON, arrays and text search; **GiST** for ranges and geometry; **BRIN** for huge tables ordered by time. |
+| **Composite index** | An index on several columns, sorted by the first, then the second, and so on. Column order matters. |
+| **Covering index (INCLUDE)** | An index that also stores extra columns so the query can be answered from the index alone. |
+| **Partial index** | An index on only some rows (e.g. `WHERE status = 'open'`) — smaller and faster for those queries. |
+| **Expression index** | An index on a computed value, like `lower(email)`. |
+| **Sequential scan** | Reading every row of a table. Fine for small tables, slow for big ones. |
+| **Index-only scan** | Answering a query entirely from an index, without touching the table. |
+| **EXPLAIN ANALYZE** | Runs a query and shows the plan Postgres used, with real timings and row counts. |
+| **Buffers** | Database pages read from memory (hit) or disk (read) while running a query. |
+| **Selectivity** | How much an index narrows things down. An index on a column with only two values (true/false) usually isn't selective. |
+| **N+1 queries** | One query for a list plus one more per item, instead of one batched query. |
+| **CREATE INDEX CONCURRENTLY** | Builds an index without blocking writes to the table — slower, but safe on live systems. |
+
 ### 🔁 Intuition check
 The instinct to add a cache or a bigger machine comes first. The fix is usually cheaper: measure,
 find the hot query, fix its cause.
@@ -802,6 +973,27 @@ timings and buffer reads.
 - Explain each isolation level and the anomalies it allows
 - Use locks deliberately and avoid lock-related outages
 - Build correct concurrent workflows, including job queues on Postgres
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Transaction** | A group of database operations that succeed or fail together. |
+| **ACID** | The guarantees of a transaction: **A**tomic (all or nothing), **C**onsistent (rules hold), **I**solated (concurrent work doesn't interfere, to a degree), **D**urable (survives crashes). |
+| **Isolation level** | How much concurrent transactions can see of each other's changes. Stricter levels prevent more bugs but can abort more transactions. |
+| **Read Committed** | Postgres's default: each statement sees data committed before it started. |
+| **Repeatable Read (snapshot isolation)** | The whole transaction sees one consistent snapshot taken at its start. |
+| **Serializable (SSI)** | The strictest level: results are as if transactions ran one after another. Postgres aborts one transaction when there's a conflict, and you retry. |
+| **Serialization failure (40001)** | The error Postgres raises when it aborts a transaction to keep it serializable. Retrying is the expected response. |
+| **Lost update** | Two requests read the same value, both change it, and the second write silently erases the first. |
+| **Write skew** | Two transactions each check a rule, change *different* rows, and together break the rule. |
+| **Row lock (FOR UPDATE)** | Locks the selected rows until the transaction ends, so others wanting to change them wait. |
+| **Deadlock** | Two transactions each wait for a lock the other holds. Postgres detects it and aborts one. |
+| **Advisory lock** | A lock your application defines by name or number ("only one nightly job at a time"), not tied to a row. |
+| **DDL** | Data Definition Language: schema-changing statements like `CREATE`, `ALTER`, `DROP`. |
+| **lock_timeout** | How long a statement will wait for a lock before giving up. Essential for migrations. |
+| **SKIP LOCKED** | "Give me rows nobody else has locked" — lets many workers grab different jobs from one table. |
 
 ### 🔁 Intuition check
 "It's in a transaction, so it's safe" is the most common assumption here — and often wrong. In a
@@ -918,6 +1110,24 @@ and a retry loop, once with a row lock. Build a `SKIP LOCKED` worker pool and ru
 - Ship schema changes with zero downtime
 - Plan backfills and large data changes safely
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Schema** | The structure of the database: tables, columns, types, constraints, indexes. |
+| **Migration** | A versioned script that changes the schema (or data), applied in order by the deploy pipeline. |
+| **Soft delete** | Marking a row as deleted (`deleted_at = now()`) instead of removing it. |
+| **Append-only / event table** | A table you only insert into, never update. The current state is the latest event. |
+| **Event sourcing** | An architecture where the full state is rebuilt from a stream of events. Powerful but complex. |
+| **Outbox table** | A table where you record "events to publish" in the same transaction as the data change. |
+| **Partitioning** | Splitting one big table into smaller pieces (by month, by tenant) that Postgres treats as one. |
+| **UUIDv7 / ULID** | Unique ids that are also roughly time-ordered, so they index well. |
+| **Backfill** | Filling a new column or table with data for existing rows. |
+| **Expand → migrate → contract** | Changing a schema in safe steps across releases so old and new code both keep working. |
+| **NOT VALID / VALIDATE** | Add a constraint without checking old rows (fast), then check them later with a lighter lock. |
+| **ORM** | Object-Relational Mapper: a library that maps tables to objects (Prisma, TypeORM, Drizzle). |
+
 ### 🔁 Intuition check
 Changing a type in code is a refactor. Changing a production schema is a migration of live data
 that old and new code read at the same time.
@@ -1023,6 +1233,26 @@ confirm zero errors.
 - Decide when another datastore is justified
 - Design caches with explicit consistency and invalidation strategies
 - Separate operational and analytical workloads
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Cache** | A fast store of copies of data, so you don't recompute or refetch it every time. |
+| **TTL** | Time to live: how long a cached value stays valid before it expires. |
+| **Cache-aside** | Check the cache; on a miss, load from the database and put it in the cache. |
+| **Write-through** | Write to the cache and the database at the same time. |
+| **Stale-while-revalidate** | Serve the old cached value immediately while refreshing it in the background. |
+| **Invalidation** | Removing or updating cached values when the underlying data changes. |
+| **Cache stampede** | A popular cached value expires and many requests rebuild it at once, overloading the database. |
+| **Hot key** | One cache key that gets a huge share of traffic. |
+| **CDN** | Content Delivery Network: servers around the world that cache content close to users. |
+| **OLTP vs OLAP** | **OLTP**: the app's many small reads and writes. **OLAP**: big analytical scans for reports. |
+| **Data warehouse** | A database built for analytics over huge datasets (BigQuery, Redshift, Snowflake). |
+| **CDC (change data capture)** | Reading a database's change log to stream every insert/update/delete to other systems. |
+| **Dual write** | Writing the same change to two systems from your code — they can drift apart if one write fails. |
+| **Redis** | A very fast in-memory key-value store, commonly used for caching, rate limiting and locks. |
 
 ### 🔁 Intuition check
 Caching looks like a free speed-up. On a server it adds multiple writers, multiple instances and
@@ -1146,6 +1376,26 @@ cold start and observe database queries.
 - Publish events reliably and consume them idempotently
 - Orchestrate multi-step workflows without distributed transactions
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Message** | A small packet of data (an event or a job) sent from one part of a system to another. |
+| **Queue** | Messages waiting to be processed; each message is handled by one worker. |
+| **Pub/sub (topic)** | Publish/subscribe: a message sent to a topic is delivered to every subscriber. |
+| **Stream / log** | An ordered, replayable record of messages split into partitions (Kafka, Kinesis). |
+| **Consumer** | The code that receives and processes messages. |
+| **At-least-once delivery** | Every message is delivered, but some may arrive more than once. |
+| **Exactly-once** | Every message has exactly one effect — in practice, at-least-once delivery plus idempotent processing. |
+| **Idempotent consumer** | A consumer that safely ignores duplicates, usually by remembering processed message ids. |
+| **Relay** | The process that reads the outbox table and publishes its events to the broker. |
+| **Broker** | The service that stores and delivers messages (Pub/Sub, SQS, Kafka). |
+| **Dead-letter queue (DLQ)** | Where messages go after failing repeatedly, so they can be inspected without blocking others. |
+| **Exponential backoff** | Waiting longer after each failed attempt (100 ms, 200 ms, 400 ms…) before retrying. |
+| **Saga** | A multi-step business process where each step has an "undo" (compensation) if a later step fails. |
+| **Choreography vs orchestration** | **Choreography**: services react to each other's events. **Orchestration**: a coordinator tells each step what to do. |
+
 ### 🔁 Intuition check
 Async processing feels like "do it later". In reality messages are delayed, duplicated and
 reordered — and a duplicated message can charge a card twice.
@@ -1267,6 +1517,28 @@ consumer at random points during a load test; verify no event is lost or applied
 - Apply timeouts, retries, circuit breakers and load shedding correctly
 - Reason about consistency trade-offs explicitly
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Partial failure** | Some parts of a system fail while others work — normal in distributed systems. |
+| **Timeout** | The maximum time you'll wait for a call before giving up. |
+| **Deadline propagation** | Passing the remaining time budget down to every call a request makes, so work stops when the caller has given up. |
+| **Retry budget** | A cap on retries (e.g. at most 10% of traffic) so retries can't overwhelm a struggling service. |
+| **Jitter** | Random variation added to retry delays so clients don't all retry at the same instant. |
+| **Circuit breaker** | Stops calling a failing dependency for a while and fails fast instead, then tests whether it has recovered. |
+| **Bulkhead** | Separate resource limits per dependency, so one slow dependency can't use up everything. |
+| **Load shedding** | Rejecting some requests on purpose when overloaded, to keep the rest fast. |
+| **Graceful degradation** | Showing partial results when a non-critical part fails, instead of an error page. |
+| **Tail latency / p99** | The response time that 99% of requests beat. The slowest 1% are what users complain about. |
+| **Hedged request** | Sending a duplicate request after a delay and using whichever answers first, to cut tail latency. |
+| **CAP theorem** | When the network splits, a distributed database must choose between consistency and availability. |
+| **PACELC** | Extends CAP: even without a network split, you trade latency against consistency. |
+| **Replication lag** | How far behind a replica is from the primary. |
+| **Read-your-writes** | Guaranteeing that after you save something, you see your change when you read it. |
+| **Little's Law** | Requests in flight = arrival rate × time per request. Explains why slow dependencies exhaust resources. |
+
 ### 🔁 Intuition check
 A failed call looks like a simple error to handle. In distributed systems a dependency can be slow,
 half-working or ambiguous about what it did — and naive retries can make it worse.
@@ -1367,6 +1639,23 @@ errors; measure the blast radius before and after adding timeouts, a breaker and
 - Use real infrastructure in tests efficiently
 - Test contracts between services
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Unit test** | Tests one function or class in isolation, fast. |
+| **Integration test** | Tests your code together with real dependencies like a database. |
+| **Contract test** | Checks that a service still matches the API or event format its consumers expect. |
+| **End-to-end (E2E) test** | Tests a full user journey through the whole system. |
+| **Testcontainers** | A library that starts real dependencies (Postgres, Redis) in Docker for your tests. |
+| **supertest** | A Node library for sending HTTP requests to your app in tests without starting a real server. |
+| **Pact** | A contract-testing tool where consumers publish expectations and providers verify them. |
+| **Property-based test** | Instead of a few examples, the test generates many random inputs and checks a rule always holds. |
+| **Load test** | Simulating heavy traffic to measure performance and find limits (k6, Gatling). |
+| **Flaky test** | A test that sometimes passes and sometimes fails without code changes. |
+| **Fixture** | Prepared test data or setup code. |
+
 ### 🔁 Intuition check
 Unit tests with mocks feel thorough. On the backend, the highest-value tests run against real
 databases — mocks hide most of the bugs that matter.
@@ -1446,6 +1735,27 @@ Add a concurrency test and a full authorization matrix test to one critical endp
 - Instrument services with logs, metrics and traces that answer real questions
 - Define SLOs and alert on error-budget burn
 - Debug production issues systematically
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Observability** | How well you can understand what a system is doing from the outside, using its signals. |
+| **Log** | A timestamped record of one event ("task assigned"). |
+| **Metric** | A number measured over time (requests per second, error rate). |
+| **Trace / span** | A trace follows one request across services; each step in it (a query, an HTTP call) is a span. |
+| **Structured logging** | Logs as JSON fields instead of free text, so they can be searched and filtered. |
+| **Trace id / traceparent** | An id shared by every log and span of one request; `traceparent` is the HTTP header that carries it. |
+| **OpenTelemetry (OTel)** | An open standard and set of libraries for producing logs, metrics and traces for any backend. |
+| **RED metrics** | **R**ate, **E**rrors, **D**uration — the three numbers to watch for every service. |
+| **USE metrics** | **U**tilization, **S**aturation, **E**rrors — the three numbers to watch for every resource. |
+| **Histogram / percentile** | A histogram records the distribution of values; percentiles (p50, p95, p99) are read from it. |
+| **Cardinality** | The number of unique label combinations in a metric. High cardinality (user ids as labels) explodes cost. |
+| **SLI / SLO / SLA** | **Indicator** (what you measure), **objective** (your target), **agreement** (a contract with penalties). |
+| **Error budget** | The amount of failure your SLO allows (99.9% → 0.1%). |
+| **Burn rate** | How fast you're using up the error budget compared with plan. |
+| **Runbook** | Step-by-step instructions for handling a known kind of alert or incident. |
 
 ### 🔁 Intuition check
 In development you have a debugger. In production you only have what you instrumented — and you're
@@ -1553,6 +1863,25 @@ alert. Break a deploy deliberately and follow the alert to the root cause.
 - Defend against the high-impact backend vulnerabilities
 - Secure the software supply chain and secrets
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Threat model** | A structured look at what could go wrong security-wise, and what you'll do about it. |
+| **STRIDE** | A checklist of threat types: **S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege. |
+| **OWASP Top 10** | The industry's list of the most critical web application security risks. |
+| **Injection** | Untrusted input interpreted as code or commands (SQL injection, command injection). |
+| **SSRF** | Server-Side Request Forgery: tricking your server into fetching internal URLs on an attacker's behalf. |
+| **Metadata service** | A special internal address in cloud VMs/runtimes that can hand out the workload's credentials. |
+| **Mass assignment** | Copying all request fields onto a model, letting attackers set fields like `role: admin`. |
+| **Rate limiting / token bucket** | Limiting how many requests a client can make; a token bucket refills allowance at a steady rate. |
+| **Secrets manager** | A secure service for storing and rotating passwords, API keys and certificates. |
+| **Supply chain** | Everything your software depends on: libraries, base images, build tools, CI actions. |
+| **SLSA / Sigstore** | Frameworks and tools for proving where a build came from and signing artifacts. |
+| **Lockfile** | A file pinning the exact dependency versions, so every install is identical. |
+| **Audit log** | An append-only record of who did what, when — for security investigations. |
+
 ### 🔁 Intuition check
 Security is often reduced to "use HTTPS and validate input". Backend security is about access
 control, injection, secrets, server-side fetching, and limiting the blast radius when something is
@@ -1651,6 +1980,24 @@ Threat-model one feature with STRIDE, then fix the top three risks and add tests
 - Design least-privilege IAM for humans, services and pipelines
 - Eliminate long-lived credentials with workload identity
 - Structure accounts/projects and guardrails for an organization
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **IAM** | Identity and Access Management: the cloud system deciding who can do what to which resource. |
+| **Principal** | Anything that can be granted access: a user, a group, a service account or role. |
+| **Permission / role / policy** | A **permission** is one action; a **role** bundles permissions; a **policy** grants roles to principals on resources. |
+| **Service account (GCP) / IAM role (AWS)** | An identity for software rather than a person. |
+| **Shared responsibility model** | The cloud provider secures the infrastructure; you secure your configuration, identities, data and code. |
+| **Organization / folder / project / account** | How cloud resources are grouped. A GCP **project** and an AWS **account** are the main units of isolation and billing. |
+| **Organization policy / SCP** | Org-wide guardrails that block risky settings everywhere (e.g. no public databases). |
+| **Least privilege** | Giving each identity only the permissions it needs, on only the resources it needs. |
+| **OIDC federation** | Letting an outside system (like GitHub Actions) exchange its own signed token for short-lived cloud credentials — no stored keys. |
+| **STS** | Security Token Service: the cloud service that hands out short-lived credentials. |
+| **actAs / PassRole** | The permission that lets one identity launch a service that runs as another identity. |
+| **Just-in-time access** | Temporary, approved elevation of permissions that expires automatically. |
 
 ### 🔁 Intuition check
 Cloud permissions feel like admin settings. In reality every resource, service and pipeline has an
@@ -1779,6 +2126,29 @@ a service with separate build and runtime identities.
 - Pick the right compute platform and tune it
 - Build secure, efficient container images
 - Design private networking for services and data
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Serverless container** | You give the platform a container image; it runs, scales and patches the servers for you (Cloud Run, Fargate). |
+| **Cold start** | The extra delay when the platform starts a new instance to handle a request. |
+| **Concurrency per instance** | How many requests one instance handles at the same time. |
+| **Min / max instances** | The lowest and highest number of instances the platform will run. |
+| **Revision / traffic splitting** | Each deploy creates an immutable revision; traffic can be split between revisions for canaries and previews. |
+| **Kubernetes / pod** | A system for running containers across many machines; a pod is its smallest unit (one or more containers). |
+| **Container image / digest** | An image packages your app and its runtime. A digest is its unique fingerprint (`sha256:…`), unlike a movable tag like `latest`. |
+| **Distroless image** | A minimal base image with only what your app needs — no shell or package manager. |
+| **VPC / subnet** | Your private network in the cloud (VPC), divided into address ranges (subnets). |
+| **Private IP** | An address only reachable inside your private network. |
+| **NAT** | Lets private resources make outbound internet calls without being reachable from the internet. |
+| **Load balancer** | Spreads incoming traffic across instances and handles HTTPS. |
+| **WAF** | Web Application Firewall: filters malicious HTTP traffic at the edge. |
+| **Identity-aware proxy** | A gateway that requires sign-in before any request reaches your app. |
+| **Bastion** | A hardened jump host used only to reach private resources. |
+| **Egress** | Traffic leaving your network. |
+| **Zero trust** | Never trust a request because of where it comes from; authenticate and authorize every one. |
 
 ### 🔁 Intuition check
 Managed hosting platforms hide these choices. Running your own services means choosing the platform,
@@ -1946,6 +2316,26 @@ Deploy a service privately with a database on private IP, controlled egress, a c
 - Build pipelines that deploy safely, progressively and keylessly
 - Coordinate application, schema and infrastructure changes
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Infrastructure as Code (IaC)** | Defining cloud resources in code files that are reviewed and versioned. |
+| **Terraform** | The most widely used IaC tool; works across clouds through providers. |
+| **Provider** | A Terraform plugin that knows how to manage one platform's resources (google, aws). |
+| **State** | Terraform's record of which real resources it manages. Stored remotely and locked. |
+| **Module** | A reusable package of Terraform code. |
+| **Plan / apply** | **Plan** shows what would change; **apply** makes the changes. |
+| **Drift** | When real infrastructure differs from what the code says, usually because of manual changes. |
+| **Policy as code** | Automated rules that block risky infrastructure changes (e.g. public buckets) before they're applied. |
+| **CI / CD** | **Continuous integration**: build and test every change automatically. **Continuous delivery/deployment**: release passing changes automatically. |
+| **Artifact** | The build output you deploy — usually a container image. |
+| **Canary release** | Sending a small share of traffic to the new version first, and rolling out further only if it's healthy. |
+| **Blue/green deployment** | Running the old (blue) and new (green) versions side by side and switching traffic at once. |
+| **Feature flag** | A switch that turns a feature on or off without redeploying. |
+| **Preview environment** | A temporary deployment of a pull request so reviewers can try it. |
+
 ### 🔁 Intuition check
 Clicking through a console feels faster. Code-defined infrastructure and automated delivery are what
 make changes reviewable, repeatable and reversible.
@@ -2054,6 +2444,20 @@ error rate, and a Terraform repo with policy checks.
 - Estimate capacity and cost credibly
 - Write design docs that get good decisions made
 
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Functional vs non-functional requirements** | **Functional**: what the system does. **Non-functional**: how well — speed, uptime, scale, cost, security. |
+| **Capacity estimate** | A rough calculation of traffic and data volume to size a design. |
+| **Peak factor** | How much higher peak traffic is than average (often 5–10×). |
+| **Fan-out on read vs on write** | Building a feed when someone reads it vs pre-computing it for every follower when something is written. |
+| **Disaster recovery (DR)** | How you restore service after a major failure (region outage, data loss). |
+| **RPO / RTO** | **Recovery point objective**: how much data you can afford to lose. **Recovery time objective**: how long recovery may take. |
+| **Design doc** | A short document proposing a design, its alternatives and trade-offs, for review before building. |
+| **ADR** | Architecture Decision Record: a brief note of a decision, its context and why it was made. |
+
 ### 📖 Core ideas
 
 **The method**
@@ -2128,6 +2532,17 @@ storage service. Get it reviewed.
 - Make sound decisions under uncertainty and communicate them
 - Review code and designs at a senior level
 - Raise the effectiveness of the people around you
+
+### 📘 Key terms
+New to some of these words? Here they are in plain English before the chapter uses them.
+
+| Term | What it means |
+|---|---|
+| **Reversible vs irreversible decision** | Some changes are easy to undo (code); others aren't (deleted data, public APIs). Match your care to how hard it is to undo. |
+| **Postmortem** | A write-up after an incident: what happened, why, and what will change. |
+| **Blameless** | Focusing on how systems and processes allowed a failure, not on who to blame. |
+| **Stacked PR** | A pull request built on top of another unmerged one. |
+| **Scope creep** | A task quietly growing beyond what was agreed. |
 
 ### 📖 Core ideas
 
@@ -2369,6 +2784,279 @@ Build TaskFlow's backend as you go.
 **SQL guides** — [index and practice schema](sql/README.md)
 
 [Joins](sql/joins.md) · [Aggregation](sql/aggregation.md) · [CTEs and subqueries](sql/ctes-and-subqueries.md) · [Window functions](sql/window-functions.md) · [Upserts and RETURNING](sql/upserts-and-returning.md) · [Reading EXPLAIN ANALYZE](sql/explain-analyze.md) · [Locks and SKIP LOCKED](sql/locking-and-skip-locked.md) · [NULLs and gotchas](sql/nulls-and-gotchas.md)
+
+---
+
+## Appendix G · Glossary
+
+Every term from the chapters' **📘 Key terms** tables, alphabetically. The chapter number shows where it's first used.
+
+| Term | What it means | Ch. |
+|---|---|---|
+| **202 Accepted** | "Request received, processing in the background." Used for long jobs, with a separate URL to check progress. | 2 |
+| **304 Not Modified** | The server's reply to "has this changed since version v7?" when it hasn't — no body is sent, saving bandwidth. | 2 |
+| **Access token vs refresh token** | Access tokens are short-lived passes sent with every request. Refresh tokens are longer-lived and only used to get new access tokens. | 3 |
+| **ACID** | The guarantees of a transaction: **A**tomic (all or nothing), **C**onsistent (rules hold), **I**solated (concurrent work doesn't interfere, to a degree), **D**urable (survives crashes). | 7 |
+| **actAs / PassRole** | The permission that lets one identity launch a service that runs as another identity. | 15 |
+| **Adapter** | A concrete implementation of a port: the Postgres repository, the HTTP client, the queue publisher. | 4 |
+| **ADR** | Architecture Decision Record: a brief note of a decision, its context and why it was made. | 18 |
+| **Advisory lock** | A lock your application defines by name or number ("only one nightly job at a time"), not tied to a row. | 7 |
+| **API contract** | The agreed shape of an API: endpoints, request and response fields, error codes. Clients build against it, so changing it can break them. | 2 |
+| **Append-only / event table** | A table you only insert into, never update. The current state is the latest event. | 8 |
+| **Application service / use case** | A function for one business action ("assign task"): checks permissions, coordinates steps, runs the transaction. | 4 |
+| **Artifact** | The build output you deploy — usually a container image. | 17 |
+| **AsyncLocalStorage** | A Node feature that keeps per-request data (request id, user) available everywhere in that request's async code, without passing it as a parameter. | 1 |
+| **At-least-once delivery** | Every message is delivered, but some may arrive more than once. | 10 |
+| **Audit log** | An append-only record of who did what, when — for security investigations. | 14 |
+| **Authentication (authn)** | Proving who someone is (login, tokens). | 3 |
+| **Authorization (authz)** | Deciding what an authenticated caller is allowed to do. | 3 |
+| **Backfill** | Filling a new column or table with data for existing rows. | 8 |
+| **Backpressure** | When the receiver is slower than the sender, the sender pauses until the receiver catches up — so memory doesn't fill up with waiting data. | 1 |
+| **Bastion** | A hardened jump host used only to reach private resources. | 16 |
+| **BFF (backend-for-frontend)** | A small server layer owned by the frontend that holds tokens safely and calls backend APIs on the browser's behalf. | 3 |
+| **Blameless** | Focusing on how systems and processes allowed a failure, not on who to blame. | 19 |
+| **Bloat** | Tables and indexes growing larger than their live data because of dead tuples, making queries slower. | 5 |
+| **Blocking / synchronous code** | Code that keeps the main thread busy until it finishes (a huge loop, `JSON.parse` of a giant string, `fs.readFileSync`). While it runs, the server can't answer anyone else. | 1 |
+| **Blue/green deployment** | Running the old (blue) and new (green) versions side by side and switching traffic at once. | 17 |
+| **Broker** | The service that stores and delivers messages (Pub/Sub, SQS, Kafka). | 10 |
+| **B-tree** | The default index type: a balanced sorted tree, good for equality, ranges and sorting. | 6 |
+| **Buffers** | Database pages read from memory (hit) or disk (read) while running a query. | 6 |
+| **Bulkhead** | Separate resource limits per dependency, so one slow dependency can't use up everything. | 11 |
+| **Burn rate** | How fast you're using up the error budget compared with plan. | 13 |
+| **Cache** | A fast store of copies of data, so you don't recompute or refetch it every time. | 9 |
+| **Cache-aside** | Check the cache; on a miss, load from the database and put it in the cache. | 9 |
+| **Cache-Control** | An HTTP header telling browsers and CDNs whether and how long they may cache a response. `private` means only the user's own browser. | 2 |
+| **Cache stampede** | A popular cached value expires and many requests rebuild it at once, overloading the database. | 9 |
+| **Canary release** | Sending a small share of traffic to the new version first, and rolling out further only if it's healthy. | 17 |
+| **Capacity estimate** | A rough calculation of traffic and data volume to size a design. | 18 |
+| **CAP theorem** | When the network splits, a distributed database must choose between consistency and availability. | 11 |
+| **Cardinality** | The number of unique label combinations in a metric. High cardinality (user ids as labels) explodes cost. | 13 |
+| **CDC (change data capture)** | Reading a database's change log to stream every insert/update/delete to other systems. | 9 |
+| **CDN** | Content Delivery Network: servers around the world that cache content close to users. | 9 |
+| **Choreography vs orchestration** | **Choreography**: services react to each other's events. **Orchestration**: a coordinator tells each step what to do. | 10 |
+| **CI / CD** | **Continuous integration**: build and test every change automatically. **Continuous delivery/deployment**: release passing changes automatically. | 17 |
+| **Circuit breaker** | Stops calling a failing dependency for a while and fails fast instead, then tests whether it has recovered. | 11 |
+| **Cold start** | The extra delay when the platform starts a new instance to handle a request. | 16 |
+| **Composite index** | An index on several columns, sorted by the first, then the second, and so on. Column order matters. | 6 |
+| **Composition root** | The one place at startup where all concrete objects are created and wired together. | 4 |
+| **Concurrency per instance** | How many requests one instance handles at the same time. | 16 |
+| **Connection pool** | A set of already-open database connections that requests borrow and return, instead of opening a new one each time (which is slow). | 1 |
+| **Consumer** | The code that receives and processes messages. | 10 |
+| **Container image / digest** | An image packages your app and its runtime. A digest is its unique fingerprint (`sha256:…`), unlike a movable tag like `latest`. | 16 |
+| **Contract test** | Checks that a service still matches the API or event format its consumers expect. | 12 |
+| **Covering index (INCLUDE)** | An index that also stores extra columns so the query can be answered from the index alone. | 6 |
+| **CREATE INDEX CONCURRENTLY** | Builds an index without blocking writes to the table — slower, but safe on live systems. | 6 |
+| **Data warehouse** | A database built for analytics over huge datasets (BigQuery, Redshift, Snowflake). | 9 |
+| **DDL** | Data Definition Language: schema-changing statements like `CREATE`, `ALTER`, `DROP`. | 7 |
+| **Dead-letter queue (DLQ)** | Where messages go after failing repeatedly, so they can be inspected without blocking others. | 10 |
+| **Deadline propagation** | Passing the remaining time budget down to every call a request makes, so work stops when the caller has given up. | 11 |
+| **Deadlock** | Two transactions each wait for a lock the other holds. Postgres detects it and aborts one. | 7 |
+| **Dead tuple** | An old row version no transaction needs any more. It wastes space until VACUUM removes it. | 5 |
+| **Dependency injection** | Passing a class the things it needs (like a repository) instead of it creating them, so you can swap them in tests. | 4 |
+| **Deprecation / Sunset headers** | Response headers that warn clients an endpoint is old (Deprecation) and when it will be removed (Sunset). | 2 |
+| **Design doc** | A short document proposing a design, its alternatives and trade-offs, for review before building. | 18 |
+| **Disaster recovery (DR)** | How you restore service after a major failure (region outage, data loss). | 18 |
+| **Distributed monolith** | Services that are deployed separately but share a database or must change together — the costs of both, the benefits of neither. | 4 |
+| **Distroless image** | A minimal base image with only what your app needs — no shell or package manager. | 16 |
+| **Domain logic** | Pure business rules with no I/O (no database, no HTTP), so they're easy to test. | 4 |
+| **Drift** | When real infrastructure differs from what the code says, usually because of manual changes. | 17 |
+| **Dual write** | Writing the same change to two systems from your code — they can drift apart if one write fails. | 9 |
+| **Egress** | Traffic leaving your network. | 16 |
+| **End-to-end (E2E) test** | Tests a full user journey through the whole system. | 12 |
+| **Error budget** | The amount of failure your SLO allows (99.9% → 0.1%). | 13 |
+| **ETag** | A short version label the server sends with a resource (like `"v7"`). It changes whenever the resource changes. | 2 |
+| **Event loop** | The loop libuv runs forever: "is any I/O finished? any timer due?" — and if so, it calls your JavaScript callback. Only one callback runs at a time, on one thread. | 1 |
+| **Event loop lag** | How late the event loop is in running work it scheduled. Near zero is healthy; hundreds of milliseconds means something is blocking the thread. | 1 |
+| **Event sourcing** | An architecture where the full state is rebuilt from a stream of events. Powerful but complex. | 8 |
+| **Exactly-once** | Every message has exactly one effect — in practice, at-least-once delivery plus idempotent processing. | 10 |
+| **Expand → migrate → contract** | Changing a schema in safe steps across releases so old and new code both keep working. | 8 |
+| **EXPLAIN ANALYZE** | Runs a query and shows the plan Postgres used, with real timings and row counts. | 6 |
+| **Exponential backoff** | Waiting longer after each failed attempt (100 ms, 200 ms, 400 ms…) before retrying. | 10 |
+| **Expression index** | An index on a computed value, like `lower(email)`. | 6 |
+| **Fan-out on read vs on write** | Building a feed when someone reads it vs pre-computing it for every follower when something is written. | 18 |
+| **Feature flag** | A switch that turns a feature on or off without redeploying. | 17 |
+| **Fixture** | Prepared test data or setup code. | 12 |
+| **Flaky test** | A test that sometimes passes and sometimes fails without code changes. | 12 |
+| **Functional vs non-functional requirements** | **Functional**: what the system does. **Non-functional**: how well — speed, uptime, scale, cost, security. | 18 |
+| **GIN / GiST / BRIN** | Special index types: **GIN** for JSON, arrays and text search; **GiST** for ranges and geometry; **BRIN** for huge tables ordered by time. | 6 |
+| **Graceful degradation** | Showing partial results when a non-critical part fails, instead of an error page. | 11 |
+| **Graceful shutdown** | On SIGTERM: stop accepting new requests, finish the ones in progress, close connections, then exit. | 1 |
+| **GraphQL dataloader** | A helper that collects the ids requested by many GraphQL resolvers and loads them in one batched query, avoiding N+1 queries. | 2 |
+| **Heap / garbage collection (GC)** | The heap is the memory where your objects live. The garbage collector periodically frees objects nothing uses any more; big collections can pause your code briefly. | 1 |
+| **Hedged request** | Sending a duplicate request after a delay and using whichever answers first, to cut tail latency. | 11 |
+| **Histogram / percentile** | A histogram records the distribution of values; percentiles (p50, p95, p99) are read from it. | 13 |
+| **Hot key** | One cache key that gets a huge share of traffic. | 9 |
+| **HttpOnly cookie** | A cookie JavaScript can't read, so a cross-site-scripting bug can't steal it. | 3 |
+| **IAM** | Identity and Access Management: the cloud system deciding who can do what to which resource. | 15 |
+| **Idempotency key** | A unique id the client sends with a request so the server can recognise a retry and return the first result instead of doing the work twice. | 2 |
+| **Idempotent** | Doing it once or ten times has the same effect. `PUT` and `DELETE` are; a plain `POST` that creates something isn't. | 2 |
+| **Idempotent consumer** | A consumer that safely ignores duplicates, usually by remembering processed message ids. | 10 |
+| **Identity-aware proxy** | A gateway that requires sign-in before any request reaches your app. | 16 |
+| **Identity provider (IdP)** | A service that handles login for you and issues tokens — Okta, Auth0, Entra ID, Google, Cognito. | 3 |
+| **Idle in transaction** | A session that started a transaction and then just sits there without committing — it pins old snapshots and blocks cleanup. | 5 |
+| **IDOR** | Insecure Direct Object Reference: reading or changing an object just by guessing its id, because the server never checked ownership. | 3 |
+| **If-Match / 412** | The client says "only update if it's still version v7". If someone changed it meanwhile, the server refuses with `412 Precondition Failed`. | 2 |
+| **Index** | A separate sorted structure that lets the database find rows quickly, like a book's index. | 6 |
+| **Index-only scan** | Answering a query entirely from an index, without touching the table. | 6 |
+| **Infrastructure as Code (IaC)** | Defining cloud resources in code files that are reviewed and versioned. | 17 |
+| **Injection** | Untrusted input interpreted as code or commands (SQL injection, command injection). | 14 |
+| **Integration test** | Tests your code together with real dependencies like a database. | 12 |
+| **Invalidation** | Removing or updating cached values when the underlying data changes. | 9 |
+| **Isolation level** | How much concurrent transactions can see of each other's changes. Stricter levels prevent more bugs but can abort more transactions. | 7 |
+| **iss / aud / exp** | Token claims: **iss** = who issued it, **aud** = which service it's for, **exp** = when it expires. You must check all three. | 3 |
+| **Jitter** | Random variation added to retry delays so clients don't all retry at the same instant. | 11 |
+| **jsonb** | Postgres's binary JSON column type, which can be indexed and queried efficiently. | 5 |
+| **Just-in-time access** | Temporary, approved elevation of permissions that expires automatically. | 15 |
+| **JWKS** | A public URL where an identity provider publishes the keys used to verify its tokens' signatures. | 3 |
+| **JWT (JSON Web Token)** | A signed, base64-encoded piece of JSON carrying claims (who, for which service, until when). Readable by anyone, but only the issuer can sign it. | 3 |
+| **Keep-alive** | Reusing one network connection for many HTTP requests instead of reconnecting (and redoing the TLS handshake) every time. | 1 |
+| **Keyset (cursor) pagination** | "Give me 50 rows after this one." The cursor remembers where the last page ended. Fast and stable. | 2 |
+| **kid** | "Key id" — a field in the token header saying which JWKS key signed it. Lets providers rotate keys safely. | 3 |
+| **Kubernetes / pod** | A system for running containers across many machines; a pod is its smallest unit (one or more containers). | 16 |
+| **Layered architecture** | Splitting code into layers with one job each (transport, business logic, data access) where dependencies only point one way. | 4 |
+| **Least privilege** | Giving each identity only the permissions it needs, on only the resources it needs. | 15 |
+| **libuv** | A C library inside Node.js that talks to the operating system for you: network sockets, files, timers, DNS. It provides the event loop and a small pool of helper threads. You never call it directly — Node's APIs use it under the hood. | 1 |
+| **libuv threadpool** | A small team of background threads (4 by default) that libuv uses for slow work the OS can't do asynchronously: file reads, password hashing, compression, `dns.lookup`. If all 4 are busy, other such work waits. | 1 |
+| **Little's Law** | Requests in flight = arrival rate × time per request. Explains why slow dependencies exhaust resources. | 11 |
+| **Load balancer** | Spreads incoming traffic across instances and handles HTTPS. | 16 |
+| **Load shedding** | Rejecting some requests on purpose when overloaded, to keep the rest fast. | 11 |
+| **Load test** | Simulating heavy traffic to measure performance and find limits (k6, Gatling). | 12 |
+| **Lockfile** | A file pinning the exact dependency versions, so every install is identical. | 14 |
+| **lock_timeout** | How long a statement will wait for a lock before giving up. Essential for migrations. | 7 |
+| **Log** | A timestamped record of one event ("task assigned"). | 13 |
+| **Lost update** | Two requests read the same value, both change it, and the second write silently erases the first. | 7 |
+| **Mass assignment** | Copying all request fields onto a model, letting attackers set fields like `role: admin`. | 14 |
+| **max_connections** | The hard limit on simultaneous database connections. | 5 |
+| **Message** | A small packet of data (an event or a job) sent from one part of a system to another. | 10 |
+| **Metadata service** | A special internal address in cloud VMs/runtimes that can hand out the workload's credentials. | 14 |
+| **Metric** | A number measured over time (requests per second, error rate). | 13 |
+| **Microservices** | Many small, separately deployed services that talk over the network. | 4 |
+| **Microtask** | A tiny callback queued by a resolved promise (`.then`, `await`) or `process.nextTick`. Node runs all pending microtasks before moving on to the next event. | 1 |
+| **Migration** | A versioned script that changes the schema (or data), applied in order by the deploy pipeline. | 8 |
+| **Min / max instances** | The lowest and highest number of instances the platform will run. | 16 |
+| **Modular monolith** | One deployable app, organized internally into independent modules with clear boundaries. | 4 |
+| **Module** | A reusable package of Terraform code. | 17 |
+| **mTLS** | Mutual TLS: both client and server present certificates, so each side proves its identity. | 3 |
+| **MVCC** | Multi-Version Concurrency Control: Postgres keeps old row versions so readers see a consistent snapshot without blocking writers. | 5 |
+| **N+1 queries** | One query for a list plus one more per item, instead of one batched query. | 6 |
+| **NAT** | Lets private resources make outbound internet calls without being reachable from the internet. | 16 |
+| **Node.js** | A program that runs JavaScript outside the browser, so you can write servers in JavaScript. It's built from two main parts: V8 and libuv. | 1 |
+| **NOT VALID / VALIDATE** | Add a constraint without checking old rows (fast), then check them later with a lighter lock. | 8 |
+| **OAuth 2.0** | A standard for granting an app limited access on a user's behalf ("allow this app to read your calendar"). | 3 |
+| **Observability** | How well you can understand what a system is doing from the outside, using its signals. | 13 |
+| **Offset pagination** | "Skip 100 rows, give me the next 50." Simple, but slow on big tables and unstable when rows are added. | 2 |
+| **OIDC federation** | Letting an outside system (like GitHub Actions) exchange its own signed token for short-lived cloud credentials — no stored keys. | 15 |
+| **OLTP vs OLAP** | **OLTP**: the app's many small reads and writes. **OLAP**: big analytical scans for reports. | 9 |
+| **OOM kill** | "Out of memory": the container uses more memory than its limit, so the platform kills the process instantly. | 1 |
+| **OpenAPI** | A standard file format for describing a REST API's contract, used to generate docs, clients and tests. | 2 |
+| **OpenID Connect (OIDC)** | A login standard built on OAuth 2.0. It adds an ID token that says who the user is. "Sign in with Google" uses it. | 3 |
+| **OpenTelemetry (OTel)** | An open standard and set of libraries for producing logs, metrics and traces for any backend. | 13 |
+| **Organization / folder / project / account** | How cloud resources are grouped. A GCP **project** and an AWS **account** are the main units of isolation and billing. | 15 |
+| **Organization policy / SCP** | Org-wide guardrails that block risky settings everywhere (e.g. no public databases). | 15 |
+| **ORM** | Object-Relational Mapper: a library that maps tables to objects (Prisma, TypeORM, Drizzle). | 8 |
+| **Outbox table** | A table where you record "events to publish" in the same transaction as the data change. | 8 |
+| **OWASP Top 10** | The industry's list of the most critical web application security risks. | 14 |
+| **PACELC** | Extends CAP: even without a network split, you trade latency against consistency. | 11 |
+| **Pact** | A contract-testing tool where consumers publish expectations and providers verify them. | 12 |
+| **Partial failure** | Some parts of a system fail while others work — normal in distributed systems. | 11 |
+| **Partial index** | An index on only some rows (e.g. `WHERE status = 'open'`) — smaller and faster for those queries. | 6 |
+| **Partitioning** | Splitting one big table into smaller pieces (by month, by tenant) that Postgres treats as one. | 8 |
+| **Peak factor** | How much higher peak traffic is than average (often 5–10×). | 18 |
+| **Permission / role / policy** | A **permission** is one action; a **role** bundles permissions; a **policy** grants roles to principals on resources. | 15 |
+| **PgBouncer** | A lightweight proxy that lets many app connections share a few real database connections. | 5 |
+| **pg_stat_statements** | A Postgres extension that records every query's call count and total time, so you know what to optimize. | 5 |
+| **PKCE** | An extra step in the OAuth login flow that stops a stolen authorization code from being used. Required for SPAs and mobile apps. | 3 |
+| **Plan / apply** | **Plan** shows what would change; **apply** makes the changes. | 17 |
+| **Policy as code** | Automated rules that block risky infrastructure changes (e.g. public buckets) before they're applied. | 17 |
+| **Port** | An interface the core code defines for what it needs ("find tasks for a team"), without saying how. | 4 |
+| **Postmortem** | A write-up after an incident: what happened, why, and what will change. | 19 |
+| **Preview environment** | A temporary deployment of a pull request so reviewers can try it. | 17 |
+| **Principal** | Anything that can be granted access: a user, a group, a service account or role. | 15 |
+| **Private IP** | An address only reachable inside your private network. | 16 |
+| **Problem Details (RFC 9457)** | A standard JSON format for API errors. Optional, but a good template if you don't have one. | 2 |
+| **Property-based test** | Instead of a few examples, the test generates many random inputs and checks a rule always holds. | 12 |
+| **Provider** | A Terraform plugin that knows how to manage one platform's resources (google, aws). | 17 |
+| **Pub/sub (topic)** | Publish/subscribe: a message sent to a topic is delivered to every subscriber. | 10 |
+| **Query planner** | The part of Postgres that decides *how* to run a query (which indexes, which join method) based on statistics. | 5 |
+| **Queue** | Messages waiting to be processed; each message is handled by one worker. | 10 |
+| **Rate limiting / token bucket** | Limiting how many requests a client can make; a token bucket refills allowance at a steady rate. | 14 |
+| **RBAC / ABAC / ReBAC** | Ways to decide permissions: by **role** (admin), by **attributes** (own team, business hours), or by **relationships** (shared with your group). | 3 |
+| **Read Committed** | Postgres's default: each statement sees data committed before it started. | 7 |
+| **Read replica** | A read-only copy of the database that follows the primary (slightly behind), used to spread read load. | 5 |
+| **Read-your-writes** | Guaranteeing that after you save something, you see your change when you read it. | 11 |
+| **Redis** | A very fast in-memory key-value store, commonly used for caching, rate limiting and locks. | 9 |
+| **RED metrics** | **R**ate, **E**rrors, **D**uration — the three numbers to watch for every service. | 13 |
+| **Relay** | The process that reads the outbox table and publishes its events to the broker. | 10 |
+| **Repeatable Read (snapshot isolation)** | The whole transaction sees one consistent snapshot taken at its start. | 7 |
+| **Replication lag** | How far behind a replica is from the primary. | 11 |
+| **Retry budget** | A cap on retries (e.g. at most 10% of traffic) so retries can't overwhelm a struggling service. | 11 |
+| **Reversible vs irreversible decision** | Some changes are easy to undo (code); others aren't (deleted data, public APIs). Match your care to how hard it is to undo. | 19 |
+| **Revision / traffic splitting** | Each deploy creates an immutable revision; traffic can be split between revisions for canaries and previews. | 16 |
+| **Row-level security (RLS)** | A Postgres feature that automatically filters rows per session, e.g. only the current tenant's rows. | 3 |
+| **Row lock (FOR UPDATE)** | Locks the selected rows until the transaction ends, so others wanting to change them wait. | 7 |
+| **RPO / RTO** | **Recovery point objective**: how much data you can afford to lose. **Recovery time objective**: how long recovery may take. | 18 |
+| **Runbook** | Step-by-step instructions for handling a known kind of alert or incident. | 13 |
+| **Saga** | A multi-step business process where each step has an "undo" (compensation) if a later step fails. | 10 |
+| **Schema** | The structure of the database: tables, columns, types, constraints, indexes. | 8 |
+| **Scope creep** | A task quietly growing beyond what was agreed. | 19 |
+| **Secrets manager** | A secure service for storing and rotating passwords, API keys and certificates. | 14 |
+| **Selectivity** | How much an index narrows things down. An index on a column with only two values (true/false) usually isn't selective. | 6 |
+| **Sequential scan** | Reading every row of a table. Fine for small tables, slow for big ones. | 6 |
+| **Serializable (SSI)** | The strictest level: results are as if transactions ran one after another. Postgres aborts one transaction when there's a conflict, and you retry. | 7 |
+| **Serialization failure (40001)** | The error Postgres raises when it aborts a transaction to keep it serializable. Retrying is the expected response. | 7 |
+| **Serverless container** | You give the platform a container image; it runs, scales and patches the servers for you (Cloud Run, Fargate). | 16 |
+| **Service account (GCP) / IAM role (AWS)** | An identity for software rather than a person. | 15 |
+| **Shared responsibility model** | The cloud provider secures the infrastructure; you secure your configuration, identities, data and code. | 15 |
+| **SIGTERM** | The signal the operating system or platform sends to say "please shut down". Deploys and scale-downs send it to your server. | 1 |
+| **SKIP LOCKED** | "Give me rows nobody else has locked" — lets many workers grab different jobs from one table. | 7 |
+| **SLI / SLO / SLA** | **Indicator** (what you measure), **objective** (your target), **agreement** (a contract with penalties). | 13 |
+| **SLSA / Sigstore** | Frameworks and tools for proving where a build came from and signing artifacts. | 14 |
+| **Snapshot** | The view of committed data a transaction or statement sees — like a photo taken at a moment in time. | 5 |
+| **Soft delete** | Marking a row as deleted (`deleted_at = now()`) instead of removing it. | 8 |
+| **SSRF** | Server-Side Request Forgery: tricking your server into fetching internal URLs on an attacker's behalf. | 14 |
+| **Stacked PR** | A pull request built on top of another unmerged one. | 19 |
+| **Stale-while-revalidate** | Serve the old cached value immediately while refreshing it in the background. | 9 |
+| **State** | Terraform's record of which real resources it manages. Stored remotely and locked. | 17 |
+| **Statistics / ANALYZE** | Summaries of your data (row counts, value distributions) the planner uses. `ANALYZE` refreshes them. | 5 |
+| **Stream** | Data processed in small chunks as it arrives, instead of loading everything into memory first (like watching a video while it downloads). | 1 |
+| **Stream / log** | An ordered, replayable record of messages split into partitions (Kafka, Kinesis). | 10 |
+| **STRIDE** | A checklist of threat types: **S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege. | 14 |
+| **Structured logging** | Logs as JSON fields instead of free text, so they can be searched and filtered. | 13 |
+| **STS** | Security Token Service: the cloud service that hands out short-lived credentials. | 15 |
+| **supertest** | A Node library for sending HTTP requests to your app in tests without starting a real server. | 12 |
+| **Supply chain** | Everything your software depends on: libraries, base images, build tools, CI actions. | 14 |
+| **Tail latency / p99** | The response time that 99% of requests beat. The slowest 1% are what users complain about. | 11 |
+| **Tenant** | One customer organization in a multi-customer (multi-tenant) app. Their data must never leak to other tenants. | 3 |
+| **Terraform** | The most widely used IaC tool; works across clouds through providers. | 17 |
+| **Testcontainers** | A library that starts real dependencies (Postgres, Redis) in Docker for your tests. | 12 |
+| **Thread** | An independent line of execution inside a process. Your JavaScript runs on one main thread; libuv keeps a few extra threads for work the OS can't do asynchronously. | 1 |
+| **Threat model** | A structured look at what could go wrong security-wise, and what you'll do about it. | 14 |
+| **Tie-breaker** | A unique column (usually `id`) added to the sort so rows with equal values (same timestamp) always come in the same order. | 2 |
+| **Timeout** | The maximum time you'll wait for a call before giving up. | 11 |
+| **Timeout / AbortSignal** | A maximum time to wait for something. `AbortSignal` is the standard way to cancel a request or operation that's taking too long. | 1 |
+| **Trace id / traceparent** | An id shared by every log and span of one request; `traceparent` is the HTTP header that carries it. | 13 |
+| **Trace / span** | A trace follows one request across services; each step in it (a query, an HTTP call) is a span. | 13 |
+| **Transaction** | A group of database operations that succeed or fail together. | 7 |
+| **Transaction ID wraparound** | Postgres numbers transactions with 32-bit counters; VACUUM "freezes" old rows so the counter can safely wrap around. | 5 |
+| **Transaction pooling** | A PgBouncer mode where a real connection is lent for one transaction at a time. Efficient, but session-level settings don't carry over. | 5 |
+| **Transport layer** | The edge that speaks HTTP, gRPC or queue messages: parses input, calls a use case, formats output. | 4 |
+| **TTL** | Time to live: how long a cached value stays valid before it expires. | 9 |
+| **Tuple** | Postgres's word for one stored version of a row. | 5 |
+| **Unit of work** | An abstraction that runs several data operations in one transaction, so they all succeed or all fail. | 4 |
+| **Unit test** | Tests one function or class in isolation, fast. | 12 |
+| **USE metrics** | **U**tilization, **S**aturation, **E**rrors — the three numbers to watch for every resource. | 13 |
+| **UUIDv7 / ULID** | Unique ids that are also roughly time-ordered, so they index well. | 8 |
+| **V8** | Google's JavaScript engine (the same one inside Chrome). It turns your JavaScript into machine code and runs it. It also manages memory for your objects. | 1 |
+| **VACUUM / autovacuum** | The process that reclaims dead tuples. Autovacuum runs it automatically in the background. | 5 |
+| **VPC / subnet** | Your private network in the cloud (VPC), divided into address ranges (subnets). | 16 |
+| **WAF** | Web Application Firewall: filters malicious HTTP traffic at the edge. | 16 |
+| **WAL (write-ahead log)** | Postgres writes every change to a log first, for crash safety. Replicas and backups replay it. | 5 |
+| **worker_threads** | A Node module that runs JavaScript on extra threads, for CPU-heavy work that would otherwise block the main thread. | 1 |
+| **Workload identity** | An identity the cloud platform gives to a running service, so it can prove who it is without a stored password or key. | 3 |
+| **Write skew** | Two transactions each check a rule, change *different* rows, and together break the rule. | 7 |
+| **Write-through** | Write to the cache and the database at the same time. | 9 |
+| **Zanzibar** | Google's global permission system. Its paper inspired open-source ReBAC tools like OpenFGA and SpiceDB. | 3 |
+| **Zero trust** | Never trust a request because of where it comes from; authenticate and authorize every one. | 16 |
 
 ---
 
